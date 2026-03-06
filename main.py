@@ -95,6 +95,14 @@ async def generic_exception_handler(request: Request, exc: Exception):
 #  인증 (Auth)
 # ════════════════════════════════════════════════
 
+@app.get("/auth/check-username")
+@limiter.limit("20/minute")
+def check_username(request: Request, username: str, db: Session = Depends(get_db)):
+    """아이디 중복 확인"""
+    exists = db.query(db_models.User).filter(db_models.User.username == username).first()
+    return {"available": exists is None}
+
+
 @app.post("/auth/register")
 @limiter.limit("5/minute")
 def register(request: Request, req: RegisterRequest, db: Session = Depends(get_db)):
