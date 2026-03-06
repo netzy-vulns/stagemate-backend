@@ -784,7 +784,7 @@ def group_schedule(
 def create_booking(
     booking: RoomBooking,
     db: Session = Depends(get_db),
-    member: db_models.ClubMember = Depends(require_team_leader)
+    member: db_models.ClubMember = Depends(require_any_member)
 ):
     return add_booking_db(booking, member.user_id, member.club_id, db)
 
