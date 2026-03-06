@@ -68,7 +68,7 @@ class NoticeRequest(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     # super_admin은 PATCH로 부여 불가 (생성 시에만 부여됨)
-    role: Literal["admin", "team_leader", "user"]
+    role: Literal["admin", "user"]
 
 
 class ChangePasswordRequest(BaseModel):

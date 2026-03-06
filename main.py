@@ -548,7 +548,7 @@ def update_member_role(
     target.role = req.role
     db.commit()
 
-    role_labels = {"admin": "임원진", "team_leader": "팀장", "user": "일반 멤버"}
+    role_labels = {"admin": "임원진", "user": "일반 멤버"}
     return {
         "message": f"역할이 '{role_labels[req.role]}'(으)로 변경됐습니다.",
         "user_id": user_id,
