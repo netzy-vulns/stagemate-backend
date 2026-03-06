@@ -1,0 +1,35 @@
+# Docker 이미지 빌드 시 제외할 파일들
+
+# 시크릿 (Railway에서 환경변수로 주입)
+.env
+*.env
+
+# 데이터베이스 파일
+*.db
+*.sqlite
+*.sqlite3
+
+# Python 가상환경 (이미지 내에서 pip install로 재설치)
+venv/
+env/
+.venv/
+
+# 캐시
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 에디터 / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Git
+.git/
+.gitignore
+
+# 로그
+*.log
+logs/
