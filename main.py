@@ -115,6 +115,9 @@ def register(request: Request, req: RegisterRequest, db: Session = Depends(get_d
     if db.query(db_models.User).filter(db_models.User.email == req.email).first():
         raise HTTPException(status_code=400, detail="이미 사용 중인 이메일입니다.")
 
+    if db.query(db_models.User).filter(db_models.User.display_name == req.display_name).first():
+        raise HTTPException(status_code=400, detail="이미 사용 중인 닉네임입니다.")
+
     user = db_models.User(
         username=req.username,
         display_name=req.display_name,
