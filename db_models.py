@@ -169,3 +169,15 @@ class PostComment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     post = relationship("Post", back_populates="comments")
     author = relationship("User")
+
+
+# ── 신고 테이블 ───────────────────────────────────────
+class Report(Base):
+    __tablename__ = "reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reporter_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    post_id = Column(Integer, ForeignKey("posts.id"), nullable=True)
+    comment_id = Column(Integer, ForeignKey("post_comments.id"), nullable=True)
+    reason = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)

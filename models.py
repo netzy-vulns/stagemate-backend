@@ -124,6 +124,28 @@ class PostCommentRequest(BaseModel):
         return v.strip()
 
 
+class PostEditRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=2000)
+
+    @field_validator('content')
+    @classmethod
+    def no_script_tags(cls, v: str) -> str:
+        if re.search(r'<script', v, re.IGNORECASE):
+            raise ValueError('스크립트 태그는 허용되지 않습니다.')
+        return v.strip()
+
+
+class ReportRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=200)
+
+    @field_validator('reason')
+    @classmethod
+    def no_script_tags(cls, v: str) -> str:
+        if re.search(r'<script', v, re.IGNORECASE):
+            raise ValueError('스크립트 태그는 허용되지 않습니다.')
+        return v.strip()
+
+
 class RoleUpdateRequest(BaseModel):
     # super_admin은 PATCH로 부여 불가 (생성 시에만 부여됨)
     role: Literal["admin", "user"]

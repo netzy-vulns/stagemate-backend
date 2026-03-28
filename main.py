@@ -29,6 +29,7 @@ from models import (
     ChangePasswordRequest, ForgotPasswordRequest,
     KakaoLoginRequest, CommentRequest,
     DeleteAccountRequest, PostRequest, PostCommentRequest, NicknameRequest,
+    PostEditRequest, ReportRequest,
 )
 from scheduler import calculate_schedule
 from group_schedule import find_common_slots_from_db
@@ -115,6 +116,14 @@ async def run_migrations():
         "ALTER TABLE posts ADD COLUMN view_count INTEGER DEFAULT 0",
         "ALTER TABLE posts ADD COLUMN post_author_name VARCHAR",
         "ALTER TABLE posts ADD COLUMN is_anonymous BOOLEAN DEFAULT FALSE",
+        """CREATE TABLE IF NOT EXISTS reports (
+            id SERIAL PRIMARY KEY,
+            reporter_id INTEGER NOT NULL REFERENCES users(id),
+            post_id INTEGER REFERENCES posts(id),
+            comment_id INTEGER REFERENCES post_comments(id),
+            reason VARCHAR NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
     ]:
         try:
             with engine.connect() as conn:
@@ -1133,13 +1142,11 @@ def delete_post(
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """게시글 삭제 (본인 or admin/super_admin)"""
+    """게시글 삭제 (작성자 본인만)"""
     post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
-    is_owner = post.author_id == member.user_id
-    is_admin = member.role in ("admin", "super_admin")
-    if not (is_owner or is_admin):
+    if post.author_id != member.user_id:
         raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     db.delete(post)
     db.commit()
@@ -1237,20 +1244,120 @@ def delete_post_comment(
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """게시글 댓글 삭제 (본인 or admin/super_admin)"""
+    """게시글 댓글 삭제 (작성자 본인만)"""
     comment = db.query(db_models.PostComment).filter(
         db_models.PostComment.id == comment_id,
         db_models.PostComment.post_id == post_id,
     ).first()
     if not comment:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
-    is_owner = comment.author_id == member.user_id
-    is_admin = member.role in ("admin", "super_admin")
-    if not (is_owner or is_admin):
+    if comment.author_id != member.user_id:
         raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     db.delete(comment)
     db.commit()
     return {"message": "삭제됐습니다."}
+
+
+# ── 게시글 수정 ──────────────────────────────────────
+@app.patch("/posts/{post_id}")
+@limiter.limit("20/minute")
+def update_post(
+    request: Request,
+    post_id: int,
+    req: PostEditRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """게시글 수정 (작성자 본인만)"""
+    post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+    if post.author_id != member.user_id:
+        raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
+    post.content = req.content
+    db.commit()
+    return {"message": "수정됐습니다."}
+
+
+# ── 댓글 수정 ─────────────────────────────────────────
+@app.patch("/posts/{post_id}/comments/{comment_id}")
+@limiter.limit("20/minute")
+def update_post_comment(
+    request: Request,
+    post_id: int,
+    comment_id: int,
+    req: PostCommentRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """댓글 수정 (작성자 본인만)"""
+    comment = db.query(db_models.PostComment).filter(
+        db_models.PostComment.id == comment_id,
+        db_models.PostComment.post_id == post_id,
+    ).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    if comment.author_id != member.user_id:
+        raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
+    comment.content = req.content
+    db.commit()
+    return {"message": "수정됐습니다."}
+
+
+# ── 게시글 신고 ──────────────────────────────────────
+@app.post("/posts/{post_id}/report")
+@limiter.limit("10/minute")
+def report_post(
+    request: Request,
+    post_id: int,
+    req: ReportRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """게시글 신고"""
+    post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+    if post.author_id == member.user_id:
+        raise HTTPException(status_code=400, detail="본인 게시글은 신고할 수 없습니다.")
+    report = db_models.Report(
+        reporter_id=member.user_id,
+        post_id=post_id,
+        reason=req.reason,
+    )
+    db.add(report)
+    db.commit()
+    return {"message": "신고가 접수됐습니다."}
+
+
+# ── 댓글 신고 ─────────────────────────────────────────
+@app.post("/posts/{post_id}/comments/{comment_id}/report")
+@limiter.limit("10/minute")
+def report_post_comment(
+    request: Request,
+    post_id: int,
+    comment_id: int,
+    req: ReportRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """댓글 신고"""
+    comment = db.query(db_models.PostComment).filter(
+        db_models.PostComment.id == comment_id,
+        db_models.PostComment.post_id == post_id,
+    ).first()
+    if not comment:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    if comment.author_id == member.user_id:
+        raise HTTPException(status_code=400, detail="본인 댓글은 신고할 수 없습니다.")
+    report = db_models.Report(
+        reporter_id=member.user_id,
+        comment_id=comment_id,
+        reason=req.reason,
+    )
+    db.add(report)
+    db.commit()
+    return {"message": "신고가 접수됐습니다."}
 
 
 # ════════════════════════════════════════════════
