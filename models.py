@@ -327,3 +327,14 @@ class ClubProfileUpdate(BaseModel):
         if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
             raise ValueError('테마 컬러는 #RRGGBB 형식이어야 합니다. (예: #6750A4)')
         return v
+
+
+class SubscriptionVerifyRequest(BaseModel):
+    product_id:     str
+    transaction_id: str
+    platform:       Literal["apple", "google"]
+    receipt_data:   str   # base64 영수증 (Apple) 또는 purchase_token (Google)
+
+
+class BoostRequest(BaseModel):
+    pass  # 본문 없음, 인증 + club membership으로 충분
