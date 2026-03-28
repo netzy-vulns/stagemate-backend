@@ -94,6 +94,8 @@ def _run_migrations() -> None:
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS storage_used_mb BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS storage_quota_extra_mb BIGINT NOT NULL DEFAULT 0",
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS boost_credits INTEGER NOT NULL DEFAULT 0",
+        # users 테이블 — FCM 푸시 토큰
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token VARCHAR",
     ]
     with engine.connect() as conn:
         for sql in migrations:

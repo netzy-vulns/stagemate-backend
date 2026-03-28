@@ -72,6 +72,9 @@ class User(Base):
     deleted_at = Column(DateTime, nullable=True)            # 탈퇴 시각 (소프트 삭제)
     reregister_allowed_at = Column(DateTime, nullable=True)  # 재가입 허용 시각 (탈퇴 후 7일)
 
+    # ── FCM 푸시 토큰 ────────────────────────────
+    fcm_token = Column(String, nullable=True)
+
     memberships = relationship("ClubMember", back_populates="user")
     availability_slots = relationship("AvailabilitySlot", back_populates="user")
     bookings = relationship("RoomBookingDB", back_populates="user")
@@ -181,6 +184,17 @@ class PostComment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     post = relationship("Post", back_populates="comments")
     author = relationship("User")
+    likes = relationship("CommentLike", back_populates="comment", cascade="all, delete-orphan")
+
+
+class CommentLike(Base):
+    __tablename__ = "comment_likes"
+    id         = Column(Integer, primary_key=True, index=True)
+    comment_id = Column(Integer, ForeignKey("post_comments.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    comment    = relationship("PostComment", back_populates="likes")
+    __table_args__ = (UniqueConstraint("comment_id", "user_id", name="uq_comment_like"),)
 
 
 # ── 알림 테이블 ───────────────────────────────────────
