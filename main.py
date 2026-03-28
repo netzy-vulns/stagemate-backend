@@ -336,8 +336,13 @@ def update_avatar(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """프로필 사진 URL 업데이트"""
+    """프로필 사진 URL 업데이트 (http/https 스킴만 허용)"""
+    from urllib.parse import urlparse
     avatar_url = body.get("avatar_url", "").strip()
+    if avatar_url:
+        parsed = urlparse(avatar_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise HTTPException(status_code=400, detail="올바르지 않은 이미지 URL입니다.")
     current_user.avatar_url = avatar_url if avatar_url else None
     db.commit()
     return {"message": "프로필 사진이 업데이트됐어요."}
@@ -366,7 +371,9 @@ def update_nickname(
 
 
 @app.patch("/auth/change-password")
+@limiter.limit("5/minute")
 def change_password(
+    request: Request,
     req: ChangePasswordRequest,
     db: Session = Depends(get_db),
     current_user: db_models.User = Depends(get_current_user),
@@ -533,7 +540,9 @@ def delete_account(
 # ════════════════════════════════════════════════
 
 @app.post("/clubs")
+@limiter.limit("5/minute")
 def create_club(
+    request: Request,
     req: ClubCreateRequest,
     db: Session = Depends(get_db),
     current_user: db_models.User = Depends(get_current_user)
@@ -702,7 +711,9 @@ def get_members(
 
 
 @app.delete("/clubs/{club_id}/members/{user_id}")
+@limiter.limit("10/minute")
 def kick_member(
+    request: Request,
     club_id: int,
     user_id: int,
     db: Session = Depends(get_db),
@@ -734,7 +745,9 @@ def kick_member(
 
 
 @app.patch("/clubs/{club_id}/members/{user_id}/role")
+@limiter.limit("10/minute")
 def update_member_role(
+    request: Request,
     club_id: int,
     user_id: int,
     req: RoleUpdateRequest,
@@ -770,7 +783,9 @@ def update_member_role(
 
 
 @app.post("/clubs/{club_id}/members/{user_id}/reset-password")
+@limiter.limit("5/minute")
 def reset_member_password(
+    request: Request,
     club_id: int,
     user_id: int,
     db: Session = Depends(get_db),
@@ -1197,10 +1212,13 @@ def delete_post(
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """게시글 삭제 (작성자 본인만)"""
+    """게시글 삭제 (작성자 본인만, 클럽 경계 검증 포함)"""
     post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+    # 전체 공개 게시글이 아닌 경우, 같은 클럽 소속인지 확인
+    if not post.is_global and post.club_id != member.club_id:
+        raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     if post.author_id != member.user_id:
         raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     db.delete(post)
@@ -1313,13 +1331,17 @@ def delete_post_comment(
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """게시글 댓글 삭제 (작성자 본인만)"""
+    """게시글 댓글 삭제 (작성자 본인만, 클럽 경계 검증 포함)"""
     comment = db.query(db_models.PostComment).filter(
         db_models.PostComment.id == comment_id,
         db_models.PostComment.post_id == post_id,
     ).first()
     if not comment:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    # 해당 댓글이 속한 게시글의 클럽 경계 확인
+    post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
+    if post and not post.is_global and post.club_id != member.club_id:
+        raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     if comment.author_id != member.user_id:
         raise HTTPException(status_code=403, detail="삭제 권한이 없습니다.")
     db.delete(comment)
@@ -1337,10 +1359,12 @@ def update_post(
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """게시글 수정 (작성자 본인만)"""
+    """게시글 수정 (작성자 본인만, 클럽 경계 검증 포함)"""
     post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+    if not post.is_global and post.club_id != member.club_id:
+        raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
     if post.author_id != member.user_id:
         raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
     post.content = req.content
@@ -1359,13 +1383,16 @@ def update_post_comment(
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """댓글 수정 (작성자 본인만)"""
+    """댓글 수정 (작성자 본인만, 클럽 경계 검증 포함)"""
     comment = db.query(db_models.PostComment).filter(
         db_models.PostComment.id == comment_id,
         db_models.PostComment.post_id == post_id,
     ).first()
     if not comment:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    post = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
+    if post and not post.is_global and post.club_id != member.club_id:
+        raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
     if comment.author_id != member.user_id:
         raise HTTPException(status_code=403, detail="수정 권한이 없습니다.")
     comment.content = req.content
