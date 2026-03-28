@@ -171,6 +171,19 @@ class PostComment(Base):
     author = relationship("User")
 
 
+# ── 알림 테이블 ───────────────────────────────────────
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)  # 알림 받는 사람
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 행동한 사람 (None=시스템)
+    post_id = Column(Integer, ForeignKey("posts.id"), nullable=True)
+    message = Column(String, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ── 신고 테이블 ───────────────────────────────────────
 class Report(Base):
     __tablename__ = "reports"

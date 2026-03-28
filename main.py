@@ -124,6 +124,15 @@ async def run_migrations():
             reason VARCHAR NOT NULL,
             created_at TIMESTAMP DEFAULT NOW()
         )""",
+        """CREATE TABLE IF NOT EXISTS notifications (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id),
+            actor_id INTEGER REFERENCES users(id),
+            post_id INTEGER REFERENCES posts(id),
+            message VARCHAR NOT NULL,
+            is_read BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW()
+        )""",
     ]:
         try:
             with engine.connect() as conn:
@@ -429,7 +438,7 @@ async def forgot_password(
                 f"  임시 비밀번호: {temp_password}\n\n"
                 f"로그인 후 반드시 비밀번호를 변경해 주세요.\n"
                 f"(설정 → 계정 관리 → 비밀번호 변경)\n\n"
-                f"감사합니다.\nStageMate 팀 🎭"
+                f"감사합니다.\nStageMate 팀"
             ),
             subtype=MessageType.plain,
         )
@@ -445,6 +454,52 @@ async def forgot_password(
 
     # 이메일 존재 여부 노출 방지 — 항상 동일 응답
     return {"message": "이메일 주소가 등록되어 있다면 임시 비밀번호를 발송했습니다."}
+
+
+@app.post("/auth/find-id")
+@limiter.limit("3/minute")
+async def find_id(
+    request: Request,
+    req: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """아이디 찾기 → 가입 이메일로 아이디(마스킹) 발송"""
+    mail_config = _get_mail_config()
+
+    user = db.query(db_models.User).filter(
+        db_models.User.email == req.email,
+        db_models.User.deleted_at.is_(None),
+    ).first()
+
+    if user:
+        # 아이디 앞 2자리만 노출, 나머지는 * 처리
+        uid = user.username
+        masked = uid[:2] + "*" * max(len(uid) - 2, 0)
+        message = MessageSchema(
+            subject="[StageMate] 아이디 찾기",
+            recipients=[req.email],
+            body=(
+                f"안녕하세요, {user.display_name}님!\n\n"
+                f"요청하신 StageMate 아이디를 안내해 드립니다.\n\n"
+                f"  아이디: {masked}\n\n"
+                f"보안을 위해 일부 글자는 *로 표시됩니다.\n"
+                f"아이디가 기억나지 않으시면 고객센터에 문의해 주세요.\n\n"
+                f"감사합니다.\nStageMate 팀"
+            ),
+            subtype=MessageType.plain,
+        )
+        try:
+            await FastMail(mail_config).send_message(message)
+            logger.info(f"Find-ID email sent: {user.username}")
+        except Exception as e:
+            logger.error(f"Email send failed: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail="이메일 발송에 실패했습니다. 잠시 후 다시 시도해주세요.",
+            )
+
+    # 이메일 존재 여부 노출 방지
+    return {"message": "등록된 이메일이라면 아이디를 발송했습니다."}
 
 
 @app.delete("/auth/me")
@@ -1229,6 +1284,20 @@ def create_post_comment(
     db.commit()
     db.refresh(comment)
     author = db.query(db_models.User).filter(db_models.User.id == member.user_id).first()
+
+    # ── 게시글 작성자에게 알림 생성 (본인 댓글 제외) ──────
+    if post.author_id != member.user_id:
+        actor_name = author.display_name if author else "누군가"
+        preview = req.content[:30] + ("..." if len(req.content) > 30 else "")
+        notif = db_models.Notification(
+            user_id=post.author_id,
+            actor_id=member.user_id,
+            post_id=post_id,
+            message=f"{actor_name}님이 내 게시글에 댓글을 남겼어요: {preview}",
+        )
+        db.add(notif)
+        db.commit()
+
     return {
         "id": comment.id,
         "author": author.display_name if author else "",
@@ -1458,6 +1527,55 @@ def get_my_activity(
         })
 
     return {"posts": post_list, "comments": comment_list}
+
+
+# ════════════════════════════════════════════════
+#  알림 (Notifications)
+# ════════════════════════════════════════════════
+
+@app.get("/notifications")
+@limiter.limit("30/minute")
+def get_notifications(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_user),
+):
+    """내 알림 목록 조회 (최근 50개)"""
+    notifications = (
+        db.query(db_models.Notification)
+        .filter(db_models.Notification.user_id == current_user.id)
+        .order_by(db_models.Notification.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    unread_count = sum(1 for n in notifications if not n.is_read)
+    return {
+        "notifications": [
+            {
+                "id": n.id,
+                "message": n.message,
+                "post_id": n.post_id,
+                "is_read": n.is_read,
+                "created_at": n.created_at.strftime("%Y.%m.%d %H:%M") if n.created_at else "",
+            }
+            for n in notifications
+        ],
+        "unread_count": unread_count,
+    }
+
+
+@app.post("/notifications/read-all")
+def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_user),
+):
+    """모든 알림 읽음 처리"""
+    db.query(db_models.Notification).filter(
+        db_models.Notification.user_id == current_user.id,
+        db_models.Notification.is_read == False,
+    ).update({"is_read": True})
+    db.commit()
+    return {"message": "모두 읽음 처리됐습니다."}
 
 
 # ════════════════════════════════════════════════
