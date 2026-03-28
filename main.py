@@ -1981,6 +1981,13 @@ def delete_submission(
     if member.club_id != club_id:
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
+    perf = db.query(db_models.Performance).filter(
+        db_models.Performance.id == perf_id,
+        db_models.Performance.club_id == club_id,
+    ).first()
+    if not perf:
+        raise HTTPException(status_code=404, detail="공연을 찾을 수 없습니다.")
+
     sub = db.query(db_models.AudioSubmission).filter(
         db_models.AudioSubmission.id == sub_id,
         db_models.AudioSubmission.performance_id == perf_id,
