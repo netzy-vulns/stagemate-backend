@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     # CORS 허용 origin (콤마로 구분, 예: https://app.example.com,https://www.example.com)
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
 
-    # Access token 만료: 60분 (기존 7일에서 단축)
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    # Access token 만료: 30일 (43200분)
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200
 
     # 로그인 실패 허용 횟수 (초과 시 계정 잠금)
     MAX_LOGIN_ATTEMPTS: int = 5
