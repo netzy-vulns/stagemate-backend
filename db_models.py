@@ -55,6 +55,9 @@ class User(Base):
     # ── 닉네임 (전체 커뮤니티용) ─────────────────
     nickname = Column(String, nullable=True, unique=True)   # 전체 커뮤니티에서 사용할 닉네임
 
+    # ── 프로필 사진 ──────────────────────────────
+    avatar_url = Column(String, nullable=True)              # R2 퍼블릭 URL
+
     # ── 소프트 삭제 (탈퇴) ──────────────────────
     deleted_at = Column(DateTime, nullable=True)            # 탈퇴 시각 (소프트 삭제)
     reregister_allowed_at = Column(DateTime, nullable=True)  # 재가입 허용 시각 (탈퇴 후 7일)

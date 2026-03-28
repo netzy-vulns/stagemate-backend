@@ -111,6 +111,7 @@ async def run_migrations():
         "ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN reregister_allowed_at TIMESTAMP",
         "ALTER TABLE users ADD COLUMN nickname VARCHAR UNIQUE",
+        "ALTER TABLE users ADD COLUMN avatar_url VARCHAR",
         "ALTER TABLE posts ADD COLUMN view_count INTEGER DEFAULT 0",
         "ALTER TABLE posts ADD COLUMN post_author_name VARCHAR",
         "ALTER TABLE posts ADD COLUMN is_anonymous BOOLEAN DEFAULT FALSE",
@@ -305,7 +306,23 @@ def get_me(current_user: db_models.User = Depends(get_current_user)):
         "username": current_user.username,
         "display_name": current_user.display_name,
         "nickname": current_user.nickname or "",
+        "avatar_url": current_user.avatar_url or "",
     }
+
+
+@app.patch("/auth/avatar")
+@limiter.limit("10/minute")
+def update_avatar(
+    request: Request,
+    body: dict,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """프로필 사진 URL 업데이트"""
+    avatar_url = body.get("avatar_url", "").strip()
+    current_user.avatar_url = avatar_url if avatar_url else None
+    db.commit()
+    return {"message": "프로필 사진이 업데이트됐어요."}
 
 
 @app.patch("/auth/nickname")
@@ -1087,10 +1104,16 @@ def get_posts(
         ).first() is not None
         # 표시 이름: post_author_name 우선, 없으면 실명
         display_author = p.post_author_name or (author.display_name if author else "탈퇴한 사용자")
+        # 익명 글이면 아바타 노출 안 함
+        author_avatar = (
+            None if (p.is_anonymous)
+            else (author.avatar_url if author else None)
+        )
         result.append({
             "id": p.id,
             "author": display_author,
             "author_id": p.author_id,
+            "author_avatar": author_avatar or "",
             "is_anonymous": p.is_anonymous or False,
             "content": p.content,
             "media_urls": p.media_urls or [],
@@ -1170,6 +1193,7 @@ def get_post_comments(
             "id": c.id,
             "author": author.display_name if author else "탈퇴한 사용자",
             "author_id": c.author_id,
+            "author_avatar": (author.avatar_url or "") if author else "",
             "content": c.content,
             "created_at": c.created_at.strftime("%Y.%m.%d %H:%M") if c.created_at else "",
         })
