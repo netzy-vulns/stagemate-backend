@@ -302,9 +302,9 @@ class ClubProfileUpdate(BaseModel):
     - 필드 null  → model_fields_set에 있음, 값은 None → DB None으로 초기화
     - 필드 빈 문자열 → validator에서 400 에러
     """
-    logo_url: Optional[str] = None
-    banner_url: Optional[str] = None
-    theme_color: Optional[str] = None
+    logo_url: Optional[str] = Field(None, max_length=2048)
+    banner_url: Optional[str] = Field(None, max_length=2048)
+    theme_color: Optional[str] = None  # 7 chars max enforced by regex
 
     @field_validator('logo_url', 'banner_url')
     @classmethod
@@ -322,6 +322,8 @@ class ClubProfileUpdate(BaseModel):
     def validate_theme_color(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
+        if v == '':
+            raise ValueError('테마 컬러는 빈 문자열일 수 없습니다. null을 사용해 초기화하세요.')
         if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
             raise ValueError('테마 컬러는 #RRGGBB 형식이어야 합니다. (예: #6750A4)')
         return v
