@@ -1,6 +1,6 @@
 import re
 from pydantic import BaseModel, Field, field_validator, EmailStr
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 # ───────────────────────────────
 # 인증 관련 모델 (입력 검증 강화)
@@ -16,6 +16,7 @@ class RegisterRequest(BaseModel):
         description="영문/숫자/언더스코어만 허용 (3~20자)"
     )
     display_name: str = Field(..., min_length=1, max_length=30)
+    nickname: str = Field(..., min_length=2, max_length=20, description="전체 커뮤니티 표시명, 필수")
     email: EmailStr = Field(..., description="비밀번호 재설정에 사용되는 이메일")
     password: str = Field(..., min_length=8, max_length=100)
 
@@ -33,6 +34,14 @@ class RegisterRequest(BaseModel):
         if re.search(r'[<>"\'&]', v):
             raise ValueError('이름에 특수문자(<, >, ", \', &)를 사용할 수 없습니다.')
         return v.strip()
+
+    @field_validator('nickname')
+    @classmethod
+    def nickname_valid(cls, v: str) -> str:
+        v = v.strip()
+        if re.search(r'[<>"\'&]', v):
+            raise ValueError('닉네임에 특수문자(<, >, ", \', &)를 사용할 수 없습니다.')
+        return v
 
 
 class ClubCreateRequest(BaseModel):
@@ -283,3 +292,36 @@ class BookingListResult(BaseModel):
     date: str
     bookings: List[RoomBooking]
     conflicts: List[str]    # 충돌 경고 목록
+
+
+class ClubProfileUpdate(BaseModel):
+    """PATCH /clubs/{id}/profile 요청 바디.
+
+    model_fields_set으로 생략(변경 없음)과 null(초기화)을 구분한다.
+    - 필드 생략 → model_fields_set에 없음 → DB 변경 없음
+    - 필드 null  → model_fields_set에 있음, 값은 None → DB None으로 초기화
+    - 필드 빈 문자열 → validator에서 400 에러
+    """
+    logo_url: Optional[str] = None
+    banner_url: Optional[str] = None
+    theme_color: Optional[str] = None
+
+    @field_validator('logo_url', 'banner_url')
+    @classmethod
+    def validate_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if v == '':
+            raise ValueError('URL은 빈 문자열일 수 없습니다. null을 사용해 초기화하세요.')
+        if not re.match(r'^https?://', v):
+            raise ValueError('URL은 http:// 또는 https://로 시작해야 합니다.')
+        return v
+
+    @field_validator('theme_color')
+    @classmethod
+    def validate_theme_color(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r'^#[0-9A-Fa-f]{6}$', v):
+            raise ValueError('테마 컬러는 #RRGGBB 형식이어야 합니다. (예: #6750A4)')
+        return v
