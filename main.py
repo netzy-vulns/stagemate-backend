@@ -1762,10 +1762,15 @@ def mark_all_notifications_read(
 # ════════════════════════════════════════════════
 
 @app.get("/upload/presigned")
+@limiter.limit("30/minute")
 def get_presigned_url(
-    filename: str,
+    request:      Request,
+    filename:     str,
     content_type: str = "image/jpeg",
+    club_id:      int | None = None,
+    file_size_mb: int = 0,
     member: db_models.ClubMember = Depends(require_any_member),
+    db: Session = Depends(get_db),
 ):
     """R2 presigned upload URL 발급 (R2 설정이 없으면 503 반환)"""
     import re as _re
@@ -1790,11 +1795,22 @@ def get_presigned_url(
         raise HTTPException(status_code=400, detail="허용되지 않는 파일 확장자입니다.")
 
     # ── filename 경로 인젝션 / 위험 문자 제거 ────────────
-    # 경로 구분자, null byte, 공백 등 제거 후 UUID 기반 키 생성
-    safe_name = _re.sub(r'[^\w.\-]', '_', filename)  # 영문/숫자/_.-, 나머지는 _로
-    safe_name = safe_name.lstrip('.')                 # 숨김파일 방지
+    safe_name = _re.sub(r'[^\w.\-]', '_', filename)
+    safe_name = safe_name.lstrip('.')
     if not safe_name:
         safe_name = "file"
+
+    # ── 쿼터 체크 (동아리 업로드인 경우) ─────────────────
+    if club_id:
+        club = db.query(db_models.Club).filter(db_models.Club.id == club_id).first()
+        if not club:
+            raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
+        if club.id != member.club_id:
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+        quota_mb = {"free": 10240, "standard": 30720, "pro": 102400}.get(club.plan or "free", 10240)
+        quota_mb += (club.storage_quota_extra_mb or 0)
+        if (club.storage_used_mb or 0) + file_size_mb > quota_mb:
+            raise HTTPException(status_code=413, detail="저장공간이 부족합니다. 구독을 업그레이드하거나 파일을 삭제해주세요.")
 
     if not settings.R2_ACCESS_KEY_ID or not settings.R2_BUCKET_NAME:
         raise HTTPException(
@@ -1804,7 +1820,11 @@ def get_presigned_url(
     import boto3
     from botocore.config import Config
 
-    key = f"posts/{uuid.uuid4()}/{safe_name}"
+    if club_id:
+        key = f"clubs/{club_id}/{uuid.uuid4()}/{safe_name}"
+    else:
+        key = f"posts/{uuid.uuid4()}/{safe_name}"
+
     s3 = boto3.client(
         "s3",
         endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
@@ -1813,10 +1833,8 @@ def get_presigned_url(
         config=Config(signature_version="s3v4"),
         region_name="auto",
     )
-    # 파일 크기 제한: 이미지 30MB / 영상 1.5GB
-    # (ContentLength는 presigned PUT에서 exact-match라 Params에 넣으면 안 됨 — Flutter에서 사전 체크)
     is_video = content_type.startswith("video/")
-    max_bytes = 1536 * 1024 * 1024 if is_video else 30 * 1024 * 1024  # 1.5GB / 30MB
+    max_bytes = 1536 * 1024 * 1024 if is_video else 30 * 1024 * 1024
 
     presigned = s3.generate_presigned_url(
         "put_object",
@@ -1825,7 +1843,55 @@ def get_presigned_url(
             "Key": key,
             "ContentType": content_type,
         },
-        ExpiresIn=300,  # 5분
+        ExpiresIn=300,
     )
+
+    # presign_requests에 기록 (만료 전 storage/report로 검증됨)
+    from datetime import timedelta
+    pr = db_models.PresignRequest(
+        key=key,
+        club_id=club_id,
+        user_id=member.user_id,
+        file_size_mb=file_size_mb,
+        expires_at=datetime.utcnow() + timedelta(minutes=5),
+    )
+    db.add(pr)
+    db.commit()
+
     public_url = f"{settings.R2_PUBLIC_URL}/{key}" if settings.R2_PUBLIC_URL else ""
     return {"upload_url": presigned, "public_url": public_url, "key": key, "max_bytes": max_bytes}
+
+
+@app.post("/clubs/{club_id}/storage/report")
+@limiter.limit("30/minute")
+def report_storage(
+    request: Request,
+    club_id: int,
+    body: dict,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """업로드 완료 후 사용량 보고 — key로 presign_requests 검증"""
+    key         = body.get("key", "")
+    reported_mb = body.get("added_mb", 0)
+
+    pr = db.query(db_models.PresignRequest).filter(
+        db_models.PresignRequest.key == key,
+        db_models.PresignRequest.user_id == member.user_id,
+        db_models.PresignRequest.expires_at > datetime.utcnow(),
+    ).first()
+    if not pr:
+        raise HTTPException(status_code=400, detail="유효하지 않은 업로드 요청입니다.")
+    if pr.club_id != club_id:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+    if abs(reported_mb - pr.file_size_mb) > 1:
+        raise HTTPException(status_code=400, detail="파일 크기가 일치하지 않습니다.")
+
+    club = db.query(db_models.Club).filter(db_models.Club.id == club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
+    club.storage_used_mb = (club.storage_used_mb or 0) + pr.file_size_mb
+
+    db.delete(pr)
+    db.commit()
+    return {"message": "사용량이 업데이트됐습니다.", "storage_used_mb": club.storage_used_mb}
