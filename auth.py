@@ -104,6 +104,13 @@ def get_current_user(
 
     if user is None:
         raise credentials_exception
+    # 탈퇴된 계정은 토큰이 남아있어도 접근 거부 (M-3)
+    if user.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="탈퇴된 계정입니다.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

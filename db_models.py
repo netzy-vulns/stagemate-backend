@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, UniqueConstraint, Boolean, Text, JSON
+from sqlalchemy import Column, Integer, BigInteger, String, Float, ForeignKey, DateTime, UniqueConstraint, Boolean, Text, JSON
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime
@@ -13,6 +13,16 @@ class Club(Base):
     invite_code = Column(String(6), nullable=False, unique=True)
     invite_code_expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    # ── 구독/플랜 ──────────────────────────────────
+    logo_url               = Column(String, nullable=True)
+    banner_url             = Column(String, nullable=True)
+    theme_color            = Column(String(7), nullable=True)          # "#RRGGBB"
+    plan                   = Column(String(20), default="free", nullable=False)
+    plan_expires_at        = Column(DateTime, nullable=True)
+    storage_used_mb        = Column(BigInteger, default=0, nullable=False)
+    storage_quota_extra_mb = Column(BigInteger, default=0, nullable=False)
+    boost_credits          = Column(Integer, default=0, nullable=False)
 
     members = relationship("ClubMember", back_populates="club")
 
@@ -144,6 +154,8 @@ class Post(Base):
     view_count = Column(Integer, default=0, nullable=False)     # 조회수
     post_author_name = Column(String, nullable=True)             # None=실명, "익명"=익명, 닉네임=닉네임
     is_anonymous = Column(Boolean, default=False, nullable=False)
+    is_boosted       = Column(Boolean, default=False, nullable=False)
+    boost_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     author = relationship("User")
     likes = relationship("PostLike", back_populates="post", cascade="all, delete-orphan")
@@ -194,3 +206,30 @@ class Report(Base):
     comment_id = Column(Integer, ForeignKey("post_comments.id"), nullable=True)
     reason = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ── 구독 트랜잭션 테이블 ─────────────────────────────
+class SubscriptionTransaction(Base):
+    __tablename__ = "subscription_transactions"
+    id             = Column(Integer, primary_key=True, index=True)
+    club_id        = Column(Integer, ForeignKey("clubs.id"), nullable=True, index=True)   # 개인 구독 시 NULL
+    user_id        = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    product_id     = Column(String, nullable=False)
+    transaction_id = Column(String, unique=True, nullable=False)
+    platform       = Column(String(20), nullable=False)   # "apple" | "google"
+    purchased_at   = Column(DateTime, nullable=False)
+    expires_at     = Column(DateTime, nullable=True)
+    status         = Column(String(20), default="active", nullable=False)
+    raw_payload    = Column(JSON, nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+
+# ── 사전 서명 요청 테이블 ──────────────────────────────
+class PresignRequest(Base):
+    __tablename__ = "presign_requests"
+    key          = Column(String, primary_key=True)
+    club_id      = Column(Integer, ForeignKey("clubs.id"), nullable=True)
+    user_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    file_size_mb = Column(Integer, nullable=False)
+    expires_at   = Column(DateTime, nullable=False, index=True)
+    created_at   = Column(DateTime, default=datetime.utcnow)
