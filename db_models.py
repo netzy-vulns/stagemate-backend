@@ -233,3 +233,45 @@ class PresignRequest(Base):
     file_size_mb = Column(Integer, nullable=False)
     expires_at   = Column(DateTime, nullable=False, index=True)
     created_at   = Column(DateTime, default=datetime.utcnow)
+
+
+# ── 공연 테이블 ───────────────────────────────────────
+class Performance(Base):
+    __tablename__ = "performances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    club_id = Column(Integer, ForeignKey("clubs.id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    performance_date = Column(String(10), nullable=True)   # "YYYY-MM-DD", 선택
+    submission_deadline = Column(DateTime, nullable=True)  # 제출 마감일, 선택
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    submissions = relationship(
+        "AudioSubmission", back_populates="performance",
+        cascade="all, delete-orphan"
+    )
+
+
+# ── 음원 제출 테이블 ──────────────────────────────
+class AudioSubmission(Base):
+    __tablename__ = "audio_submissions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    performance_id = Column(Integer, ForeignKey("performances.id"), nullable=False)
+    club_id = Column(Integer, ForeignKey("clubs.id"), nullable=False)
+    submitted_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    team_name = Column(String(50), nullable=False)
+    song_title = Column(String(100), nullable=False)
+    file_url = Column(String, nullable=False)       # R2 퍼블릭 URL
+    file_size_mb = Column(Integer, nullable=False, default=0)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    performance = relationship("Performance", back_populates="submissions")
+    submitter = relationship("User")
+
+    # 팀장 한 명은 공연당 하나의 제출만 가능 (재제출 = UPDATE)
+    __table_args__ = (
+        UniqueConstraint("performance_id", "submitted_by", name="uq_audio_submission"),
+    )

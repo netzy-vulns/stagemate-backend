@@ -338,3 +338,47 @@ class SubscriptionVerifyRequest(BaseModel):
 
 class BoostRequest(BaseModel):
     pass  # 본문 없음, 인증 + club membership으로 충분
+
+
+# ── 음원 제출 게시판 ──────────────────────────────
+
+class PerformanceCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    performance_date: Optional[str] = Field(
+        None, pattern=r'^\d{4}-\d{2}-\d{2}$',
+        description="공연 날짜 YYYY-MM-DD (선택)"
+    )
+    submission_deadline: Optional[str] = Field(
+        None,
+        description="제출 마감일 ISO 8601 문자열 (선택), 예: 2025-09-01T23:59:00"
+    )
+
+    @field_validator('name')
+    @classmethod
+    def name_no_html(cls, v: str) -> str:
+        if re.search(r'[<>"\'&]', v):
+            raise ValueError('공연명에 특수문자(<, >, ", \', &)를 사용할 수 없습니다.')
+        return v.strip()
+
+
+class AudioSubmissionRequest(BaseModel):
+    team_name: str = Field(..., min_length=1, max_length=50)
+    song_title: str = Field(..., min_length=1, max_length=100)
+    file_url: str = Field(..., min_length=1, max_length=2048)
+    file_size_mb: int = Field(..., ge=0, le=200)  # 최대 200MB
+
+    @field_validator('team_name', 'song_title')
+    @classmethod
+    def no_html(cls, v: str) -> str:
+        if re.search(r'[<>"\'&]', v):
+            raise ValueError('특수문자(<, >, ", \', &)를 사용할 수 없습니다.')
+        return v.strip()
+
+    @field_validator('file_url')
+    @classmethod
+    def validate_file_url(cls, v: str) -> str:
+        if not re.match(r'^https?://', v):
+            raise ValueError('file_url은 http:// 또는 https://로 시작해야 합니다.')
+        if not v.lower().endswith('.mp3'):
+            raise ValueError('MP3 파일만 허용됩니다.')
+        return v

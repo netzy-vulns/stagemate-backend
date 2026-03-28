@@ -36,6 +36,7 @@ from models import (
     ClubProfileUpdate,
     SubscriptionVerifyRequest,
     BoostRequest,
+    PerformanceCreateRequest, AudioSubmissionRequest,
 )
 from scheduler import calculate_schedule
 from group_schedule import find_common_slots_from_db
@@ -1762,6 +1763,244 @@ def get_club_subscription(
         "storage_quota_mb": quota_mb,
         "boost_credits":   club.boost_credits or 0,
     }
+
+
+# ════════════════════════════════════════════════
+#  음원 제출 게시판 — 공연 관리
+# ════════════════════════════════════════════════
+
+@app.post("/clubs/{club_id}/performances")
+def create_performance(
+    club_id: int,
+    req: PerformanceCreateRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    """공연 생성 (임원진 이상)"""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    deadline = None
+    if req.submission_deadline:
+        try:
+            deadline = datetime.fromisoformat(req.submission_deadline)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="submission_deadline 형식이 올바르지 않습니다.")
+
+    perf = db_models.Performance(
+        club_id=club_id,
+        name=req.name,
+        performance_date=req.performance_date,
+        submission_deadline=deadline,
+        created_by=member.user_id,
+    )
+    db.add(perf)
+    db.commit()
+    db.refresh(perf)
+    return {"id": perf.id, "message": "공연이 등록됐습니다."}
+
+
+@app.get("/clubs/{club_id}/performances")
+def list_performances(
+    club_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_team_leader),
+):
+    """공연 목록 조회 (팀장 이상)"""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    perfs = (
+        db.query(db_models.Performance)
+        .filter(db_models.Performance.club_id == club_id)
+        .order_by(db_models.Performance.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "performance_date": p.performance_date,
+            "submission_deadline": (
+                p.submission_deadline.isoformat() if p.submission_deadline else None
+            ),
+            "submission_count": len(p.submissions),
+            "created_at": p.created_at.strftime("%Y-%m-%d"),
+        }
+        for p in perfs
+    ]
+
+
+@app.delete("/clubs/{club_id}/performances/{perf_id}")
+def delete_performance(
+    club_id: int,
+    perf_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    """공연 삭제 (임원진 이상, cascade로 음원 제출도 삭제)"""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    perf = db.query(db_models.Performance).filter(
+        db_models.Performance.id == perf_id,
+        db_models.Performance.club_id == club_id,
+    ).first()
+    if not perf:
+        raise HTTPException(status_code=404, detail="공연을 찾을 수 없습니다.")
+
+    db.delete(perf)
+    db.commit()
+    return {"message": "공연이 삭제됐습니다."}
+
+
+# ════════════════════════════════════════════════
+#  음원 제출 게시판 — 제출 관리
+# ════════════════════════════════════════════════
+
+@app.post("/clubs/{club_id}/performances/{perf_id}/submissions")
+def upsert_submission(
+    club_id: int,
+    perf_id: int,
+    req: AudioSubmissionRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_team_leader),
+):
+    """음원 제출 / 재제출 (팀장 이상). 같은 공연에 이미 제출했으면 덮어씀."""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    perf = db.query(db_models.Performance).filter(
+        db_models.Performance.id == perf_id,
+        db_models.Performance.club_id == club_id,
+    ).first()
+    if not perf:
+        raise HTTPException(status_code=404, detail="공연을 찾을 수 없습니다.")
+
+    existing = db.query(db_models.AudioSubmission).filter(
+        db_models.AudioSubmission.performance_id == perf_id,
+        db_models.AudioSubmission.submitted_by == member.user_id,
+    ).first()
+
+    if existing:
+        existing.team_name = req.team_name
+        existing.song_title = req.song_title
+        existing.file_url = req.file_url
+        existing.file_size_mb = req.file_size_mb
+        existing.updated_at = datetime.utcnow()
+        db.commit()
+        db.refresh(existing)
+        return {"id": existing.id, "message": "음원이 업데이트됐습니다."}
+    else:
+        sub = db_models.AudioSubmission(
+            performance_id=perf_id,
+            club_id=club_id,
+            submitted_by=member.user_id,
+            team_name=req.team_name,
+            song_title=req.song_title,
+            file_url=req.file_url,
+            file_size_mb=req.file_size_mb,
+        )
+        db.add(sub)
+        db.commit()
+        db.refresh(sub)
+        return {"id": sub.id, "message": "음원이 제출됐습니다."}
+
+
+@app.get("/clubs/{club_id}/performances/{perf_id}/submissions")
+def list_submissions(
+    club_id: int,
+    perf_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    """모든 제출 목록 조회 (임원진 이상)"""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    subs = db.query(db_models.AudioSubmission).filter(
+        db_models.AudioSubmission.performance_id == perf_id,
+        db_models.AudioSubmission.club_id == club_id,
+    ).order_by(db_models.AudioSubmission.updated_at.desc()).all()
+
+    return [
+        {
+            "id": s.id,
+            "team_name": s.team_name,
+            "song_title": s.song_title,
+            "file_url": s.file_url,
+            "file_size_mb": s.file_size_mb,
+            "submitter_name": s.submitter.display_name if s.submitter else "탈퇴한 사용자",
+            "submitted_at": s.submitted_at.strftime("%Y-%m-%d %H:%M"),
+            "updated_at": s.updated_at.strftime("%Y-%m-%d %H:%M") if s.updated_at else None,
+        }
+        for s in subs
+    ]
+
+
+@app.get("/clubs/{club_id}/performances/{perf_id}/submissions/mine")
+def get_my_submission(
+    club_id: int,
+    perf_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_team_leader),
+):
+    """내 제출 현황 조회 (팀장 이상). 없으면 null 반환."""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    sub = db.query(db_models.AudioSubmission).filter(
+        db_models.AudioSubmission.performance_id == perf_id,
+        db_models.AudioSubmission.submitted_by == member.user_id,
+    ).first()
+
+    if not sub:
+        return {"submission": None}
+
+    return {
+        "submission": {
+            "id": sub.id,
+            "team_name": sub.team_name,
+            "song_title": sub.song_title,
+            "file_url": sub.file_url,
+            "file_size_mb": sub.file_size_mb,
+            "updated_at": sub.updated_at.strftime("%Y-%m-%d %H:%M") if sub.updated_at else None,
+        }
+    }
+
+
+@app.delete("/clubs/{club_id}/performances/{perf_id}/submissions/{sub_id}")
+def delete_submission(
+    club_id: int,
+    perf_id: int,
+    sub_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_team_leader),
+):
+    """음원 제출 삭제 (본인만)"""
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    perf = db.query(db_models.Performance).filter(
+        db_models.Performance.id == perf_id,
+        db_models.Performance.club_id == club_id,
+    ).first()
+    if not perf:
+        raise HTTPException(status_code=404, detail="공연을 찾을 수 없습니다.")
+
+    sub = db.query(db_models.AudioSubmission).filter(
+        db_models.AudioSubmission.id == sub_id,
+        db_models.AudioSubmission.performance_id == perf_id,
+        db_models.AudioSubmission.club_id == club_id,
+    ).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="제출을 찾을 수 없습니다.")
+    if sub.submitted_by != member.user_id:
+        raise HTTPException(status_code=403, detail="본인의 제출만 삭제할 수 있습니다.")
+
+    db.delete(sub)
+    db.commit()
+    return {"message": "제출이 삭제됐습니다."}
 
 
 # ════════════════════════════════════════════════
