@@ -1847,7 +1847,6 @@ def get_presigned_url(
     )
 
     # presign_requests에 기록 (만료 전 storage/report로 검증됨)
-    from datetime import timedelta
     pr = db_models.PresignRequest(
         key=key,
         club_id=club_id,
@@ -1887,11 +1886,14 @@ def report_storage(
     if abs(reported_mb - pr.file_size_mb) > 1:
         raise HTTPException(status_code=400, detail="파일 크기가 일치하지 않습니다.")
 
-    club = db.query(db_models.Club).filter(db_models.Club.id == club_id).first()
-    if not club:
+    updated = db.query(db_models.Club).filter(db_models.Club.id == club_id).update(
+        {"storage_used_mb": db_models.Club.storage_used_mb + pr.file_size_mb}
+    )
+    if not updated:
         raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
-    club.storage_used_mb = (club.storage_used_mb or 0) + pr.file_size_mb
 
     db.delete(pr)
     db.commit()
-    return {"message": "사용량이 업데이트됐습니다.", "storage_used_mb": club.storage_used_mb}
+    db.expire_all()
+    club = db.query(db_models.Club).filter(db_models.Club.id == club_id).first()
+    return {"message": "사용량이 업데이트됐습니다.", "storage_used_mb": club.storage_used_mb if club else 0}
