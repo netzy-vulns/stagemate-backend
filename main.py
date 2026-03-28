@@ -10,6 +10,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy import desc, nulls_last
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from database import engine, get_db
@@ -1251,7 +1252,6 @@ def get_posts(
             db_models.Post.club_id == member.club_id,
             db_models.Post.is_global == False,
         )
-    from sqlalchemy import desc, nulls_last
     posts = query.order_by(
         desc(db_models.Post.is_boosted),
         nulls_last(desc(db_models.Post.boost_expires_at)),
