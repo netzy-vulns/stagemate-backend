@@ -2348,6 +2348,7 @@ def get_presigned_url(
     ALLOWED_CONTENT_TYPES = {
         "image/jpeg", "image/png", "image/gif", "image/webp",
         "video/mp4", "video/quicktime", "video/webm",
+        "audio/mpeg", "audio/mp3",
     }
     if content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="허용되지 않는 파일 형식입니다.")
@@ -2356,6 +2357,7 @@ def get_presigned_url(
     ALLOWED_EXTENSIONS = {
         ".jpg", ".jpeg", ".png", ".gif", ".webp",
         ".mp4", ".mov", ".webm",
+        ".mp3",
     }
     dot_pos = filename.rfind(".")
     ext = filename[dot_pos:].lower() if dot_pos != -1 else ""
@@ -2401,8 +2403,12 @@ def get_presigned_url(
         config=Config(signature_version="s3v4"),
         region_name="auto",
     )
-    is_video = content_type.startswith("video/")
-    max_bytes = 1536 * 1024 * 1024 if is_video else 30 * 1024 * 1024
+    if content_type.startswith("video/"):
+        max_bytes = 1_500 * 1024 * 1024  # 1.5 GB for video
+    elif content_type.startswith("audio/"):
+        max_bytes = 200 * 1024 * 1024  # 200 MB for audio
+    else:
+        max_bytes = 20 * 1024 * 1024   # 20 MB for images
 
     presigned = s3.generate_presigned_url(
         "put_object",
