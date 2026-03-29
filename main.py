@@ -97,6 +97,8 @@ def _run_migrations() -> None:
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS boost_credits INTEGER NOT NULL DEFAULT 0",
         # users 테이블 — FCM 푸시 토큰
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS fcm_token VARCHAR",
+        # notices 테이블 — 미디어 첨부 (이미지/영상)
+        "ALTER TABLE notices ADD COLUMN IF NOT EXISTS media_urls JSON DEFAULT '[]'",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -1068,7 +1070,9 @@ def get_notices(
             "id": n.id,
             "title": n.title,
             "content": n.content,
+            "media_urls": n.media_urls or [],
             "author": n.author.display_name,
+            "author_id": n.author_id,
             "created_at": n.created_at.strftime("%Y-%m-%d %H:%M"),
         }
         for n in notices
@@ -1086,6 +1090,7 @@ def create_notice(
         club_id=member.club_id,
         title=req.title,
         content=req.content,
+        media_urls=req.media_urls,
         author_id=member.user_id,
     )
     db.add(notice)
@@ -1130,7 +1135,9 @@ def get_notice(
         "id": notice.id,
         "title": notice.title,
         "content": notice.content,
+        "media_urls": notice.media_urls or [],
         "author": notice.author.display_name,
+        "author_id": notice.author_id,
         "created_at": notice.created_at.strftime("%Y-%m-%d %H:%M"),
     }
 

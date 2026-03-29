@@ -69,6 +69,7 @@ class ClubJoinRequest(BaseModel):
 class NoticeRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=100)
     content: str = Field(..., min_length=1, max_length=5000)
+    media_urls: list[str] = Field(default_factory=list, max_length=5)
 
     @field_validator('title', 'content')
     @classmethod

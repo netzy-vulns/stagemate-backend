@@ -124,6 +124,7 @@ class Notice(Base):
     club_id = Column(Integer, ForeignKey("clubs.id"), nullable=True)
     title = Column(String)
     content = Column(String)
+    media_urls = Column(JSON, default=list)
     author_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
 
