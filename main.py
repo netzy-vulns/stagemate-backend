@@ -146,6 +146,26 @@ def _send_push(token: str, title: str, body: str, post_id: int) -> None:
         logging.warning("FCM send failed (token=%s...): %s", token[:10], e)
 
 
+def _send_announcement_push(tokens: list, club_name: str, notice_title: str, notice_id: int) -> None:
+    """공지사항 생성 시 동아리 전체 멤버에게 FCM 푸시 발송. 논블로킹 백그라운드 태스크."""
+    if not _firebase_app or not tokens:
+        return
+    title = f"📢 [{club_name}] 새 공지사항"
+    body = notice_title[:50]
+    for token in tokens:
+        if not token:
+            continue
+        try:
+            fb_messaging.send(fb_messaging.Message(
+                notification=fb_messaging.Notification(title=title, body=body),
+                data={"notice_id": str(notice_id)},
+                token=token,
+            ))
+            logging.info("Announcement FCM push sent to token %s...", token[:10])
+        except Exception as e:
+            logging.warning("Announcement FCM send failed (token=%s...): %s", token[:10], e)
+
+
 app = FastAPI(
     title="StageMate API 🎭",
     # 프로덕션에서 자동 문서 노출 제한
@@ -1012,6 +1032,7 @@ def get_notices(
 @app.post("/notices")
 def create_notice(
     req: NoticeRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     member: db_models.ClubMember = Depends(require_admin)
 ):
@@ -1024,6 +1045,26 @@ def create_notice(
     db.add(notice)
     db.commit()
     db.refresh(notice)
+
+    # 동아리 전체 멤버에게 FCM 푸시 발송 (백그라운드, 논블로킹)
+    club = db.query(db_models.Club).filter(db_models.Club.id == member.club_id).first()
+    club_name = club.name if club else "동아리"
+    members = db.query(db_models.ClubMember).filter(
+        db_models.ClubMember.club_id == member.club_id
+    ).all()
+    tokens = [
+        m.user.fcm_token
+        for m in members
+        if m.user and m.user.fcm_token
+    ]
+    background_tasks.add_task(
+        _send_announcement_push,
+        tokens,
+        club_name,
+        req.title,
+        notice.id,
+    )
+
     return {"message": "공지사항이 등록됐습니다!", "id": notice.id}
 
 
