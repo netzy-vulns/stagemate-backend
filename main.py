@@ -1506,6 +1506,56 @@ def get_posts(
     return result
 
 
+@app.get("/posts/{post_id}")
+@limiter.limit("60/minute")
+def get_post(
+    request: Request,
+    post_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """게시글 단건 조회 (푸시 알림 딥링크용)"""
+    p = db.query(db_models.Post).filter(db_models.Post.id == post_id).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+    # 권한 확인: 전체 채널이 아니면 같은 동아리만
+    if not p.is_global and p.club_id != member.club_id:
+        raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+
+    author = db.query(db_models.User).filter(db_models.User.id == p.author_id).first()
+    like_count = db.query(db_models.PostLike).filter(db_models.PostLike.post_id == p.id).count()
+    comment_count = db.query(db_models.PostComment).filter(db_models.PostComment.post_id == p.id).count()
+    my_liked = db.query(db_models.PostLike).filter(
+        db_models.PostLike.post_id == p.id,
+        db_models.PostLike.user_id == member.user_id,
+    ).first() is not None
+
+    if p.is_global:
+        display_author = p.post_author_name or "알 수 없음"
+    else:
+        display_author = p.post_author_name or (author.display_name if author else "탈퇴한 사용자")
+    author_avatar = (
+        None if (p.is_anonymous)
+        else (author.avatar_url if author else None)
+    )
+    return {
+        "id": p.id,
+        "author": display_author,
+        "author_id": p.author_id,
+        "author_avatar": author_avatar or "",
+        "is_anonymous": p.is_anonymous or False,
+        "content": p.content,
+        "media_urls": p.media_urls or [],
+        "like_count": like_count,
+        "comment_count": comment_count,
+        "view_count": p.view_count or 0,
+        "my_liked": my_liked,
+        "is_global": p.is_global,
+        "is_boosted": p.is_boosted or False,
+        "created_at": p.created_at.strftime("%Y.%m.%d %H:%M") if p.created_at else "",
+    }
+
+
 @app.delete("/posts/{post_id}")
 def delete_post(
     post_id: int,
