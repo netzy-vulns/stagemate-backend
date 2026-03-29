@@ -1655,9 +1655,10 @@ def create_post_comment(
     author = db.query(db_models.User).filter(db_models.User.id == member.user_id).first()
 
     # ── 게시글 작성자에게 알림 생성 (본인 댓글 제외) ──────
+    actor_name = (author.nickname if author and author.nickname else "알 수 없음") if post and post.is_global else (author.display_name if author else "알 수 없음")
+    preview = req.content[:30] + ("..." if len(req.content) > 30 else "")
+
     if post.author_id != member.user_id:
-        actor_name = (author.nickname if author and author.nickname else "알 수 없음") if post and post.is_global else (author.display_name if author else "알 수 없음")
-        preview = req.content[:30] + ("..." if len(req.content) > 30 else "")
         notif = db_models.Notification(
             user_id=post.author_id,
             actor_id=member.user_id,
@@ -1666,14 +1667,29 @@ def create_post_comment(
         )
         db.add(notif)
         db.commit()
-        # FCM 푸시 (백그라운드, 논블로킹)
         background_tasks.add_task(
             _send_push,
-            post.author.fcm_token or "",   # lazy-loaded via Post.author relationship (one extra query, acceptable per spec)
-            "새 댓글",
-            f"{actor_name}님이 댓글을 남겼어요: {preview}",
+            post.author.fcm_token or "",
+            "💬 새 댓글",
+            f"{actor_name}: {preview}",
             post_id,
         )
+
+    # ── 대댓글인 경우: 원 댓글 작성자에게도 알림 ──────
+    if req.parent_id:
+        parent = db.query(db_models.PostComment).filter(
+            db_models.PostComment.id == req.parent_id
+        ).first()
+        if parent and parent.author_id != member.user_id and parent.author_id != post.author_id:
+            parent_author = db.query(db_models.User).filter(db_models.User.id == parent.author_id).first()
+            if parent_author and parent_author.fcm_token:
+                background_tasks.add_task(
+                    _send_push,
+                    parent_author.fcm_token,
+                    "↩️ 새 대댓글",
+                    f"{actor_name}: {preview}",
+                    post_id,
+                )
 
     return {
         "id": comment.id,
