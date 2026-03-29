@@ -2055,9 +2055,9 @@ def create_performance(
 def list_performances(
     club_id: int,
     db: Session = Depends(get_db),
-    member: db_models.ClubMember = Depends(require_team_leader),
+    member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """공연 목록 조회 (팀장 이상)"""
+    """공연 목록 조회 (클럽 멤버 이상)"""
     if member.club_id != club_id:
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
@@ -2116,9 +2116,9 @@ def upsert_submission(
     req: AudioSubmissionRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
-    member: db_models.ClubMember = Depends(require_team_leader),
+    member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """음원 제출 / 재제출 (팀장 이상). 같은 공연에 이미 제출했으면 덮어씀."""
+    """음원 제출 / 재제출 (클럽 멤버 이상). 같은 공연에 이미 제출했으면 덮어씀."""
     if member.club_id != club_id:
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
@@ -2213,9 +2213,9 @@ def get_my_submission(
     club_id: int,
     perf_id: int,
     db: Session = Depends(get_db),
-    member: db_models.ClubMember = Depends(require_team_leader),
+    member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """내 제출 현황 조회 (팀장 이상). 없으면 null 반환."""
+    """내 제출 현황 조회 (클럽 멤버 이상). 없으면 null 반환."""
     if member.club_id != club_id:
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
@@ -2245,9 +2245,9 @@ def delete_submission(
     perf_id: int,
     sub_id: int,
     db: Session = Depends(get_db),
-    member: db_models.ClubMember = Depends(require_team_leader),
+    member: db_models.ClubMember = Depends(require_any_member),
 ):
-    """음원 제출 삭제 (본인만)"""
+    """음원 제출 삭제 (본인만, 클럽 멤버 이상)"""
     if member.club_id != club_id:
         raise HTTPException(status_code=403, detail="권한이 없습니다.")
 
