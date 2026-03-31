@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.exceptions import InvalidSignature
 from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -2192,7 +2192,7 @@ def get_club_subscription(
     club = db.query(db_models.Club).filter(db_models.Club.id == club_id).first()
     if not club:
         raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
-    quota_mb = {"free": 1024, "standard": 51200, "pro": 204800}.get(club.plan or "free", 10240)
+    quota_mb = {"free": 1024, "standard": 51200, "pro": 204800}.get(club.plan or "free", 1024)
     quota_mb += (club.storage_quota_extra_mb or 0)
     return {
         "plan":            club.plan or "free",
@@ -2673,7 +2673,7 @@ def get_presigned_url(
             raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
         if club.id != member.club_id:
             raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
-        quota_mb = {"free": 1024, "standard": 51200, "pro": 204800}.get(club.plan or "free", 10240)
+        quota_mb = {"free": 1024, "standard": 51200, "pro": 204800}.get(club.plan or "free", 1024)
         quota_mb += (club.storage_quota_extra_mb or 0)
         if (club.storage_used_mb or 0) + file_size_mb > quota_mb:
             raise HTTPException(status_code=413, detail="저장공간이 부족합니다. 구독을 업그레이드하거나 파일을 삭제해주세요.")
@@ -2930,3 +2930,132 @@ async def google_webhook(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Google webhook error: {e}")
     return {"status": "ok"}
+
+
+# ─── 개인정보처리방침 / 이용약관 ─────────────────────────────────────────────
+
+_HTML_STYLE = """
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Noto Sans KR', sans-serif;
+         max-width: 800px; margin: 0 auto; padding: 24px 16px;
+         color: #1a1a1a; line-height: 1.7; }
+  h1 { font-size: 22px; border-bottom: 2px solid #6750A4; padding-bottom: 8px; color: #6750A4; }
+  h2 { font-size: 16px; margin-top: 28px; color: #333; }
+  p, li { font-size: 14px; }
+  ul { padding-left: 20px; }
+  .updated { font-size: 12px; color: #888; margin-bottom: 20px; }
+</style>
+"""
+
+@app.get("/privacy", response_class=HTMLResponse, include_in_schema=False)
+async def privacy_policy():
+    html = f"""<!DOCTYPE html><html><head>{_HTML_STYLE}<title>개인정보처리방침 — StageMate</title></head><body>
+<h1>개인정보처리방침</h1>
+<p class="updated">최종 업데이트: 2026년 4월 1일</p>
+
+<p>StageMate(이하 "서비스")는 이용자의 개인정보를 소중히 여기며, 관련 법령을 준수합니다.</p>
+
+<h2>1. 수집하는 개인정보 항목</h2>
+<ul>
+  <li>필수: 이름(표시 이름), 이메일 주소, 비밀번호(암호화 저장)</li>
+  <li>카카오 로그인 시: 카카오 계정 식별자, 이메일(동의 시)</li>
+  <li>서비스 이용 시 자동 수집: 기기 정보, 앱 이용 기록, 푸시 알림 토큰</li>
+  <li>결제 시: 구독 거래 식별자(실제 결제 정보는 App Store / Google Play가 직접 처리)</li>
+</ul>
+
+<h2>2. 개인정보의 이용 목적</h2>
+<ul>
+  <li>회원 가입 및 서비스 제공</li>
+  <li>동아리 관리 기능 제공 (일정, 예약, 공지, 커뮤니티)</li>
+  <li>푸시 알림 발송</li>
+  <li>구독 결제 처리 및 플랜 관리</li>
+  <li>고객 문의 대응 및 서비스 개선</li>
+</ul>
+
+<h2>3. 개인정보 보유 및 이용 기간</h2>
+<p>회원 탈퇴 시 또는 개인정보 삭제 요청 시 즉시 파기합니다. 단, 관련 법령에 따라 일정 기간 보관이 필요한 경우 해당 기간 동안 보관 후 파기합니다.</p>
+
+<h2>4. 제3자 제공</h2>
+<p>이용자의 개인정보는 원칙적으로 제3자에게 제공하지 않습니다. 다만, 다음 서비스를 통해 일부 데이터가 처리될 수 있습니다.</p>
+<ul>
+  <li><strong>Firebase (Google LLC)</strong>: 푸시 알림 전송, 앱 분석</li>
+  <li><strong>카카오 (Kakao Corp.)</strong>: 소셜 로그인 (로그인 선택 시)</li>
+  <li><strong>Apple / Google</strong>: 구독 결제 처리</li>
+  <li><strong>Railway</strong>: 서버 인프라 및 데이터베이스 호스팅</li>
+</ul>
+
+<h2>5. 개인정보 보호 조치</h2>
+<ul>
+  <li>비밀번호는 bcrypt로 암호화하여 저장합니다.</li>
+  <li>모든 통신은 HTTPS(TLS)로 암호화됩니다.</li>
+  <li>JWT 토큰으로 인증 및 접근을 제어합니다.</li>
+</ul>
+
+<h2>6. 이용자의 권리</h2>
+<p>이용자는 언제든지 개인정보 열람, 수정, 삭제를 요청할 수 있습니다. 앱 내 '회원 탈퇴' 기능을 통해 계정 및 모든 데이터를 즉시 삭제할 수 있습니다.</p>
+
+<h2>7. 아동의 개인정보</h2>
+<p>서비스는 만 14세 미만 아동을 대상으로 하지 않습니다.</p>
+
+<h2>8. 문의</h2>
+<p>개인정보 관련 문의: <strong>support@stagemate.app</strong></p>
+</body></html>"""
+    return HTMLResponse(content=html)
+
+
+@app.get("/terms", response_class=HTMLResponse, include_in_schema=False)
+async def terms_of_service():
+    html = f"""<!DOCTYPE html><html><head>{_HTML_STYLE}<title>이용약관 — StageMate</title></head><body>
+<h1>이용약관</h1>
+<p class="updated">최종 업데이트: 2026년 4월 1일</p>
+
+<h2>제1조 (목적)</h2>
+<p>이 약관은 StageMate(이하 "서비스")가 제공하는 공연 동아리 관리 앱 서비스의 이용 조건 및 절차, 이용자와 서비스 간의 권리·의무 및 책임사항을 규정함을 목적으로 합니다.</p>
+
+<h2>제2조 (서비스 이용 자격)</h2>
+<ul>
+  <li>만 14세 이상이면 누구나 가입할 수 있습니다.</li>
+  <li>정확한 정보로 회원가입해야 하며, 타인의 정보를 도용하여 가입할 수 없습니다.</li>
+</ul>
+
+<h2>제3조 (서비스 내용)</h2>
+<p>StageMate는 다음 기능을 제공합니다.</p>
+<ul>
+  <li>동아리 생성 및 멤버 관리</li>
+  <li>공지사항, 게시판, 댓글 등 커뮤니티 기능</li>
+  <li>스케줄 조율 및 연습실 예약</li>
+  <li>음원 파일 제출 및 관리</li>
+  <li>무대 순서 최적화</li>
+  <li>STANDARD / PRO 유료 구독 플랜</li>
+</ul>
+
+<h2>제4조 (구독 결제)</h2>
+<ul>
+  <li>유료 구독은 App Store 또는 Google Play를 통해 결제됩니다.</li>
+  <li>구독은 구독 기간 만료 전 취소하지 않으면 자동으로 갱신됩니다.</li>
+  <li>구독 취소는 각 스토어의 구독 관리 페이지에서 가능합니다.</li>
+  <li>구독 환불은 각 스토어의 환불 정책을 따릅니다.</li>
+</ul>
+
+<h2>제5조 (이용자 의무)</h2>
+<ul>
+  <li>타인의 명예를 훼손하거나 불법적인 콘텐츠를 게시하지 않아야 합니다.</li>
+  <li>서비스의 정상적인 운영을 방해하는 행위를 하지 않아야 합니다.</li>
+  <li>타인의 개인정보를 무단으로 수집·이용하지 않아야 합니다.</li>
+</ul>
+
+<h2>제6조 (서비스 중단 및 변경)</h2>
+<p>서비스는 시스템 점검, 장애, 기타 사정에 의해 일시 중단될 수 있습니다. 서비스 내용이 변경될 경우 앱 내 공지 또는 이메일로 안내합니다.</p>
+
+<h2>제7조 (책임 제한)</h2>
+<p>서비스는 천재지변, 불가항력, 또는 이용자의 귀책 사유로 인한 손해에 대해 책임을 지지 않습니다.</p>
+
+<h2>제8조 (분쟁 해결)</h2>
+<p>서비스 이용과 관련된 분쟁은 대한민국 법을 준거법으로 하며, 관할 법원은 민사소송법에 따릅니다.</p>
+
+<h2>문의</h2>
+<p>이용약관 관련 문의: <strong>support@stagemate.app</strong></p>
+</body></html>"""
+    return HTMLResponse(content=html)
