@@ -1545,6 +1545,10 @@ def search_posts(
         author = db.query(db_models.User).filter(db_models.User.id == p.author_id).first()
         like_count = db.query(db_models.PostLike).filter(db_models.PostLike.post_id == p.id).count()
         comment_count = db.query(db_models.PostComment).filter(db_models.PostComment.post_id == p.id).count()
+        my_liked = db.query(db_models.PostLike).filter(
+            db_models.PostLike.post_id == p.id,
+            db_models.PostLike.user_id == member.user_id,
+        ).first() is not None
 
         if p.is_global:
             display_author = p.post_author_name or "알 수 없음"
@@ -1566,6 +1570,8 @@ def search_posts(
             "like_count": like_count,
             "comment_count": comment_count,
             "view_count": p.view_count or 0,
+            "my_liked": my_liked,
+            "is_boosted": p.is_boosted or False,
             "is_global": p.is_global,
             "club_id": p.club_id,
             "created_at": p.created_at.strftime("%Y.%m.%d %H:%M") if p.created_at else "",
