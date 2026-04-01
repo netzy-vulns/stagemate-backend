@@ -1506,6 +1506,73 @@ def get_posts(
     return result
 
 
+@app.get("/posts/search")
+@limiter.limit("30/minute")
+def search_posts(
+    request: Request,
+    q: str = "",
+    is_global: bool = False,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """게시글 검색 (content ILIKE, 우리동아리/전체동아리)"""
+    q_stripped = q.strip()
+    if len(q_stripped) < 2:
+        return []
+
+    # % 와 _ 와일드카드 이스케이프 (사용자 입력 보호)
+    q_safe = q_stripped.replace('%', r'\%').replace('_', r'\_')
+    q_like = f"%{q_safe}%"
+
+    query = db.query(db_models.Post).filter(
+        db_models.Post.content.ilike(q_like)
+    )
+
+    if is_global:
+        # 전체 동아리: is_global=True인 게시글은 모든 인증 멤버에게 공개 (의도된 동작)
+        query = query.filter(db_models.Post.is_global == True)
+    else:
+        # 우리 동아리: 요청자의 club_id로 필터
+        query = query.filter(
+            db_models.Post.is_global == False,
+            db_models.Post.club_id == member.club_id,
+        )
+
+    posts = query.order_by(desc(db_models.Post.created_at)).limit(20).all()
+
+    result = []
+    for p in posts:
+        author = db.query(db_models.User).filter(db_models.User.id == p.author_id).first()
+        like_count = db.query(db_models.PostLike).filter(db_models.PostLike.post_id == p.id).count()
+        comment_count = db.query(db_models.PostComment).filter(db_models.PostComment.post_id == p.id).count()
+
+        if p.is_global:
+            display_author = p.post_author_name or "알 수 없음"
+        else:
+            display_author = p.post_author_name or (author.display_name if author else "탈퇴한 사용자")
+
+        # 익명 글이면 author 이름/아바타 null (author_id는 항상 반환 — "내 글" 판단에 필요)
+        author_name = None if p.is_anonymous else display_author
+        author_avatar = None if p.is_anonymous else (author.avatar_url if author else None)
+
+        result.append({
+            "id": p.id,
+            "author": author_name,
+            "author_id": p.author_id,
+            "author_avatar": author_avatar or "",
+            "is_anonymous": p.is_anonymous or False,
+            "content": p.content,
+            "media_urls": p.media_urls or [],
+            "like_count": like_count,
+            "comment_count": comment_count,
+            "view_count": p.view_count or 0,
+            "is_global": p.is_global,
+            "club_id": p.club_id,
+            "created_at": p.created_at.strftime("%Y.%m.%d %H:%M") if p.created_at else "",
+        })
+    return result
+
+
 @app.get("/posts/{post_id}")
 @limiter.limit("60/minute")
 def get_post(
