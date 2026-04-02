@@ -1537,6 +1537,7 @@ def create_post(
         is_anonymous=req.is_anonymous,
         post_author_name=post_author_name,
         view_count=0,
+        youtube_url=req.youtube_url,
     )
     db.add(post)
     db.commit()
@@ -1599,6 +1600,7 @@ def get_posts(
             "is_anonymous": p.is_anonymous or False,
             "content": p.content,
             "media_urls": p.media_urls or [],
+            "youtube_url": p.youtube_url,
             "like_count": like_count,
             "comment_count": comment_count,
             "view_count": p.view_count or 0,
@@ -1671,6 +1673,7 @@ def search_posts(
             "is_anonymous": p.is_anonymous or False,
             "content": p.content,
             "media_urls": p.media_urls or [],
+            "youtube_url": p.youtube_url,
             "like_count": like_count,
             "comment_count": comment_count,
             "view_count": p.view_count or 0,
@@ -1723,6 +1726,7 @@ def get_post(
         "is_anonymous": p.is_anonymous or False,
         "content": p.content,
         "media_urls": p.media_urls or [],
+        "youtube_url": p.youtube_url,
         "like_count": like_count,
         "comment_count": comment_count,
         "view_count": p.view_count or 0,
@@ -2722,6 +2726,7 @@ def get_my_activity(
             "id": p.id,
             "content": p.content,
             "media_urls": p.media_urls or [],
+            "youtube_url": p.youtube_url,
             "like_count": like_count,
             "comment_count": comment_count,
             "is_global": p.is_global,

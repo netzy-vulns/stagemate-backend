@@ -102,6 +102,7 @@ class PostRequest(BaseModel):
     media_urls: list[str] = Field(default_factory=list, max_length=5)
     is_global: bool = False
     is_anonymous: bool = False  # True면 "익명"으로 게시
+    youtube_url: Optional[str] = Field(None, max_length=500)
 
     @field_validator('content')
     @classmethod
