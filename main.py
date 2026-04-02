@@ -44,6 +44,7 @@ from models import (
     BoostRequest,
     PerformanceCreateRequest, AudioSubmissionRequest,
     FcmTokenRequest,
+    PerformanceArchiveRequest,
 )
 from scheduler import calculate_schedule
 from group_schedule import find_common_slots_from_db
@@ -2639,6 +2640,157 @@ def delete_submission(
     db.delete(sub)
     db.commit()
     return {"message": "제출이 삭제됐습니다."}
+
+
+# ── 공연 아카이브 ──────────────────────────────────────────────
+
+def _archive_to_dict(a, likes_count: int, my_liked: bool) -> dict:
+    return {
+        "id": a.id,
+        "club_id": a.club_id,
+        "title": a.title,
+        "description": a.description,
+        "performance_date": a.performance_date,
+        "youtube_url": a.youtube_url,
+        "native_video_url": a.native_video_url,
+        "view_count": a.view_count,
+        "likes_count": likes_count,
+        "my_liked": my_liked,
+        "created_at": a.created_at.strftime("%Y-%m-%d"),
+    }
+
+
+@app.get("/clubs/{club_id}/performance-archives")
+def list_performance_archives(
+    club_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    archives = db.query(db_models.PerformanceArchive).filter(
+        db_models.PerformanceArchive.club_id == club_id
+    ).order_by(db_models.PerformanceArchive.performance_date.desc()).all()
+
+    result = []
+    for a in archives:
+        likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=a.id).count()
+        my_liked = db.query(db_models.PerformanceArchiveLike).filter_by(
+            archive_id=a.id, user_id=member.user_id
+        ).first() is not None
+        result.append(_archive_to_dict(a, likes_count, my_liked))
+    return result
+
+
+@app.post("/clubs/{club_id}/performance-archives")
+def create_performance_archive(
+    club_id: int,
+    req: PerformanceArchiveRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    # 무료 플랜 15개 한도
+    if member.club.plan == "free":
+        count = db.query(db_models.PerformanceArchive).filter_by(club_id=club_id).count()
+        if count >= 15:
+            raise HTTPException(
+                status_code=403,
+                detail="무료 플랜은 최대 15개까지 저장할 수 있어요. 무제한은 PRO 플랜으로 업그레이드하세요.",
+            )
+    archive = db_models.PerformanceArchive(
+        club_id=club_id,
+        title=req.title,
+        description=req.description,
+        performance_date=req.performance_date,
+        youtube_url=req.youtube_url,
+    )
+    db.add(archive)
+    db.commit()
+    db.refresh(archive)
+    return {"message": "등록되었습니다.", "id": archive.id}
+
+
+@app.get("/clubs/{club_id}/performance-archives/{archive_id}")
+def get_performance_archive(
+    club_id: int,
+    archive_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    a = db.query(db_models.PerformanceArchive).filter_by(
+        id=archive_id, club_id=club_id
+    ).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+    # view_count 증가
+    a.view_count += 1
+    db.commit()
+    likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=archive_id).count()
+    my_liked = db.query(db_models.PerformanceArchiveLike).filter_by(
+        archive_id=archive_id, user_id=member.user_id
+    ).first() is not None
+    return _archive_to_dict(a, likes_count, my_liked)
+
+
+@app.post("/clubs/{club_id}/performance-archives/{archive_id}/like")
+def toggle_archive_like(
+    club_id: int,
+    archive_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    # 아카이브 존재 및 club_id 소속 확인
+    archive = db.query(db_models.PerformanceArchive).filter_by(
+        id=archive_id, club_id=club_id
+    ).first()
+    if not archive:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+
+    existing = db.query(db_models.PerformanceArchiveLike).filter_by(
+        archive_id=archive_id, user_id=member.user_id
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"liked": False}
+    db.add(db_models.PerformanceArchiveLike(archive_id=archive_id, user_id=member.user_id))
+    db.commit()
+    return {"liked": True}
+
+
+@app.delete("/clubs/{club_id}/performance-archives/{archive_id}")
+def delete_performance_archive(
+    club_id: int,
+    archive_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    a = db.query(db_models.PerformanceArchive).filter_by(
+        id=archive_id, club_id=club_id
+    ).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+    db.delete(a)
+    db.commit()
+    return {"message": "삭제되었습니다."}
 
 
 # ════════════════════════════════════════════════

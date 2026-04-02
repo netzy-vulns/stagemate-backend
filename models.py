@@ -400,3 +400,14 @@ class AudioSubmissionRequest(BaseModel):
 
 class FcmTokenRequest(BaseModel):
     token: str = Field(..., min_length=1, max_length=512)
+
+
+class PerformanceArchiveRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+    performance_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$')
+    youtube_url: Optional[str] = Field(None, max_length=500)
+
+
+class ChallengeEntryRequest(BaseModel):
+    archive_id: int
