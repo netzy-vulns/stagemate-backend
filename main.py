@@ -902,6 +902,36 @@ def get_invite_code(
     }
 
 
+@app.post("/clubs/{club_id}/invite-code/regenerate")
+def regenerate_invite_code(
+    club_id: int,
+    db: Session = Depends(get_db),
+    current_user: db_models.User = Depends(get_current_user)
+):
+    """초대 코드 강제 재발급 — 회장 전용"""
+    me = db.query(db_models.ClubMember).filter(
+        db_models.ClubMember.club_id == club_id,
+        db_models.ClubMember.user_id == current_user.id
+    ).first()
+    if not me or me.role != "super_admin":
+        raise HTTPException(status_code=403, detail="회장만 접근할 수 있습니다.")
+
+    club = db.query(db_models.Club).filter(db_models.Club.id == club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
+
+    code, expires_at = generate_invite_code()
+    club.invite_code = code
+    club.invite_code_expires_at = expires_at
+    db.commit()
+    db.refresh(club)
+
+    return {
+        "invite_code": club.invite_code,
+        "expires_at": club.invite_code_expires_at.isoformat(),
+    }
+
+
 @app.get("/clubs/{club_id}/members")
 def get_members(
     club_id: int,
@@ -3073,7 +3103,7 @@ async def privacy_policy():
 <p>서비스는 만 14세 미만 아동을 대상으로 하지 않습니다.</p>
 
 <h2>8. 문의</h2>
-<p>개인정보 관련 문의: <strong>support@stagemate.app</strong></p>
+<p>개인정보 관련 문의: <strong>netzy00.26@gmail.com</strong></p>
 </body></html>"""
     return HTMLResponse(content=html)
 
@@ -3129,6 +3159,6 @@ async def terms_of_service():
 <p>서비스 이용과 관련된 분쟁은 대한민국 법을 준거법으로 하며, 관할 법원은 민사소송법에 따릅니다.</p>
 
 <h2>문의</h2>
-<p>이용약관 관련 문의: <strong>support@stagemate.app</strong></p>
+<p>이용약관 관련 문의: <strong>netzy00.26@gmail.com</strong></p>
 </body></html>"""
     return HTMLResponse(content=html)
