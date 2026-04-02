@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import secrets
 import string
 import json
@@ -3613,6 +3614,22 @@ def public_ranking_api(db: Session = Depends(get_db)):
     return {"year_month": current_ym, "entries": entries}
 
 
+def _extract_youtube_id(url: str | None) -> str | None:
+    """YouTube URL에서 동영상 ID 추출"""
+    if not url:
+        return None
+    for pattern in [
+        r'(?:v=)([a-zA-Z0-9_-]{11})',
+        r'youtu\.be/([a-zA-Z0-9_-]{11})',
+        r'embed/([a-zA-Z0-9_-]{11})',
+        r'shorts/([a-zA-Z0-9_-]{11})',
+    ]:
+        m = re.search(pattern, url)
+        if m:
+            return m.group(1)
+    return None
+
+
 @app.get("/public/clubs/{club_id}")
 def public_club_api(club_id: int, db: Session = Depends(get_db)):
     """동아리 공개 프로필 + 아카이브 JSON — 인증 불필요"""
@@ -3628,11 +3645,14 @@ def public_club_api(club_id: int, db: Session = Depends(get_db)):
         app_likes = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=a.id).count()
         web_likes = db.query(db_models.WebArchiveLike).filter_by(archive_id=a.id).count()
         likes_count = app_likes + web_likes
+        yt_id = _extract_youtube_id(a.youtube_url)
         result.append({
             "id": a.id,
             "title": a.title,
             "performance_date": a.performance_date,
             "youtube_url": a.youtube_url,
+            "youtube_video_id": yt_id,
+            "youtube_thumbnail": f"https://img.youtube.com/vi/{yt_id}/hqdefault.jpg" if yt_id else None,
             "view_count": a.view_count,
             "likes_count": likes_count,
         })

@@ -4,9 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_name }} — StageMate</title>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Serif&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+    body { font-family: 'Zen Serif', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
            background: #f8fafc; color: #1e293b; }
     header { background: #0f172a; padding: 14px 20px;
              display: flex; align-items: center; justify-content: space-between; }
@@ -20,17 +21,38 @@
     .club-header p { color: #64748b; }
     .archive-card { background: white; border-radius: 12px; overflow: hidden;
                     margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-    .thumb { background: linear-gradient(135deg, #1a1a2e, #533483); height: 140px;
-             display: flex; align-items: center; justify-content: center; }
-    .play-btn { width: 44px; height: 44px; background: #ff0000; border-radius: 12px;
-                display: flex; align-items: center; justify-content: center;
-                font-size: 1.4em; color: white; text-decoration: none; }
-    .card-info { padding: 12px 14px; display: flex; justify-content: space-between; }
-    .card-info strong { display: block; }
+    .thumb {
+      position: relative;
+      height: 180px;
+      background: linear-gradient(135deg, #1a1a2e, #533483);
+      background-size: cover;
+      background-position: center;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .thumb::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.25);
+      pointer-events: none;
+    }
+    .play-btn {
+      position: relative; z-index: 1;
+      width: 52px; height: 52px; background: #ff0000; border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5em; color: white; text-decoration: none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .play-btn:hover { transform: scale(1.08); box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
+    .play-btn.no-link { background: #555; cursor: default; }
+    .card-info { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; }
+    .card-info strong { display: block; margin-bottom: 2px; }
     .card-info span { font-size: 0.8em; color: #94a3b8; }
     .like-btn { background: none; border: none; cursor: pointer; color: #ef4444;
                 display: flex; align-items: center; gap: 4px; font-size: 1em;
-                padding: 4px 8px; border-radius: 6px; transition: background 0.15s; }
+                padding: 4px 8px; border-radius: 6px; transition: background 0.15s;
+                flex-shrink: 0; }
     .like-btn:hover { background: #fef2f2; }
     .like-btn.liked { font-weight: bold; }
     .back-link { display: inline-block; margin-bottom: 16px; color: #6366f1;
@@ -39,9 +61,7 @@
 </head>
 <body>
   <header>
-    <a class="logo" href="/ranking">
-      StageMate
-    </a>
+    <a class="logo" href="/ranking">StageMate</a>
     <a class="download-btn" href="#">앱 다운로드</a>
   </header>
 
@@ -55,11 +75,15 @@
 
     {% for a in archives %}
     <div class="archive-card">
+      {% if a.youtube_thumbnail %}
+      <div class="thumb" style="background-image: url('{{ a.youtube_thumbnail }}');">
+      {% else %}
       <div class="thumb">
+      {% endif %}
         {% if a.youtube_url %}
         <a class="play-btn" href="{{ a.youtube_url }}" target="_blank">▶</a>
         {% else %}
-        <div class="play-btn" style="background:#555;">▶</div>
+        <div class="play-btn no-link">▶</div>
         {% endif %}
       </div>
       <div class="card-info">
@@ -78,31 +102,33 @@
     </p>
     {% endfor %}
   </main>
-<script>
-  const API = 'https://stagemate.netzy.dev';
-  // Restore liked state from localStorage
-  document.querySelectorAll('.like-btn').forEach(btn => {
-    const id = btn.dataset.id;
-    if (localStorage.getItem('web_like_' + id)) btn.classList.add('liked');
-  });
 
-  async function toggleLike(btn) {
-    const id = btn.dataset.id;
-    try {
-      const res = await fetch(API + '/public/archives/' + id + '/like', { method: 'POST' });
-      const data = await res.json();
-      btn.querySelector('span').textContent = data.likes_count;
-      if (data.liked) {
-        btn.classList.add('liked');
-        localStorage.setItem('web_like_' + id, '1');
-      } else {
-        btn.classList.remove('liked');
-        localStorage.removeItem('web_like_' + id);
+  <script>
+    const API = 'https://stagemate.netzy.dev';
+
+    // 좋아요 상태 복원
+    document.querySelectorAll('.like-btn').forEach(btn => {
+      const id = btn.dataset.id;
+      if (localStorage.getItem('web_like_' + id)) btn.classList.add('liked');
+    });
+
+    async function toggleLike(btn) {
+      const id = btn.dataset.id;
+      try {
+        const res = await fetch(API + '/public/archives/' + id + '/like', { method: 'POST' });
+        const data = await res.json();
+        btn.querySelector('span').textContent = data.likes_count;
+        if (data.liked) {
+          btn.classList.add('liked');
+          localStorage.setItem('web_like_' + id, '1');
+        } else {
+          btn.classList.remove('liked');
+          localStorage.removeItem('web_like_' + id);
+        }
+      } catch(e) {
+        console.error(e);
       }
-    } catch(e) {
-      console.error(e);
     }
-  }
-</script>
+  </script>
 </body>
 </html>
