@@ -1208,6 +1208,28 @@ def get_notice(
     }
 
 
+@app.patch("/notices/{notice_id}")
+def update_notice(
+    notice_id: int,
+    req: NoticeRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin)
+):
+    notice = db.query(db_models.Notice).filter(
+        db_models.Notice.id == notice_id,
+        db_models.Notice.club_id == member.club_id
+    ).first()
+    if not notice:
+        raise HTTPException(status_code=404, detail="공지사항을 찾을 수 없습니다.")
+    # 작성자 본인만 수정 가능
+    if notice.author_id != member.user_id:
+        raise HTTPException(status_code=403, detail="본인이 작성한 공지사항만 수정할 수 있습니다.")
+    notice.title = req.title
+    notice.content = req.content
+    db.commit()
+    return {"message": "수정되었습니다."}
+
+
 @app.delete("/notices/{notice_id}")
 def delete_notice(
     notice_id: int,
