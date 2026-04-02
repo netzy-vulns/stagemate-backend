@@ -238,6 +238,15 @@ class PerformanceArchiveLike(Base):
     )
 
 
+class WebArchiveLike(Base):
+    __tablename__ = "web_archive_likes"
+    id = Column(Integer, primary_key=True, index=True)
+    archive_id = Column(Integer, ForeignKey("performance_archives.id", ondelete="CASCADE"), nullable=False)
+    ip_address = Column(String(64), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (UniqueConstraint("archive_id", "ip_address", name="uq_web_like"),)
+
+
 # ── 챌린지 ────────────────────────────────────
 class Challenge(Base):
     __tablename__ = "challenges"

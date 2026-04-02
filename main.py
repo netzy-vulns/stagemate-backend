@@ -161,6 +161,15 @@ CREATE TABLE IF NOT EXISTS challenge_entry_likes (
 )
 """,
         "ALTER TABLE posts ADD COLUMN IF NOT EXISTS youtube_url VARCHAR(500)",
+        """
+CREATE TABLE IF NOT EXISTS web_archive_likes (
+    id SERIAL PRIMARY KEY,
+    archive_id INTEGER NOT NULL REFERENCES performance_archives(id) ON DELETE CASCADE,
+    ip_address VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(archive_id, ip_address)
+)
+""",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -3590,8 +3599,9 @@ def public_club_api(club_id: int, db: Session = Depends(get_db)):
 
     result = []
     for a in archives:
-        likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(
-            archive_id=a.id).count()
+        app_likes = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=a.id).count()
+        web_likes = db.query(db_models.WebArchiveLike).filter_by(archive_id=a.id).count()
+        likes_count = app_likes + web_likes
         result.append({
             "id": a.id,
             "title": a.title,
@@ -3601,6 +3611,38 @@ def public_club_api(club_id: int, db: Session = Depends(get_db)):
             "likes_count": likes_count,
         })
     return {"club_name": club.name, "archives": result}
+
+
+@app.post("/public/archives/{archive_id}/like")
+def toggle_web_archive_like(
+    archive_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    archive = db.query(db_models.PerformanceArchive).filter(
+        db_models.PerformanceArchive.id == archive_id
+    ).first()
+    if not archive:
+        raise HTTPException(status_code=404, detail="Archive not found")
+
+    ip = request.client.host
+    existing = db.query(db_models.WebArchiveLike).filter_by(
+        archive_id=archive_id, ip_address=ip
+    ).first()
+
+    if existing:
+        db.delete(existing)
+        db.commit()
+        liked = False
+    else:
+        db.add(db_models.WebArchiveLike(archive_id=archive_id, ip_address=ip))
+        db.commit()
+        liked = True
+
+    # Return updated count (app likes + web likes)
+    app_count = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=archive_id).count()
+    web_count = db.query(db_models.WebArchiveLike).filter_by(archive_id=archive_id).count()
+    return {"liked": liked, "likes_count": app_count + web_count}
 
 
 # ── 웹 페이지 라우트 ───────────────────────────────────────────

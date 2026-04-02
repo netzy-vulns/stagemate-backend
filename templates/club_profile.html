@@ -4,9 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_name }} — StageMate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    body { font-family: 'Noto Serif KR', Georgia, 'Batang', serif;
            background: #f8fafc; color: #1e293b; }
     header { background: #0f172a; padding: 14px 20px;
              display: flex; align-items: center; justify-content: space-between; }
@@ -28,7 +30,11 @@
     .card-info { padding: 12px 14px; display: flex; justify-content: space-between; }
     .card-info strong { display: block; }
     .card-info span { font-size: 0.8em; color: #94a3b8; }
-    .likes { display: flex; align-items: center; gap: 4px; color: #ef4444; }
+    .like-btn { background: none; border: none; cursor: pointer; color: #ef4444;
+                display: flex; align-items: center; gap: 4px; font-size: 1em;
+                padding: 4px 8px; border-radius: 6px; transition: background 0.15s; }
+    .like-btn:hover { background: #fef2f2; }
+    .like-btn.liked { font-weight: bold; }
     .back-link { display: inline-block; margin-bottom: 16px; color: #6366f1;
                  text-decoration: none; font-size: 0.9em; }
   </style>
@@ -63,7 +69,9 @@
           <strong>{{ a.title }}</strong>
           <span>{{ a.performance_date }}</span>
         </div>
-        <div class="likes">♥ {{ a.likes_count }}</div>
+        <button class="like-btn" data-id="{{ a.id }}" data-count="{{ a.likes_count }}" onclick="toggleLike(this)">
+          ♥ <span>{{ a.likes_count }}</span>
+        </button>
       </div>
     </div>
     {% else %}
@@ -72,5 +80,31 @@
     </p>
     {% endfor %}
   </main>
+<script>
+  const API = 'https://stagemate.netzy.dev';
+  // Restore liked state from localStorage
+  document.querySelectorAll('.like-btn').forEach(btn => {
+    const id = btn.dataset.id;
+    if (localStorage.getItem('web_like_' + id)) btn.classList.add('liked');
+  });
+
+  async function toggleLike(btn) {
+    const id = btn.dataset.id;
+    try {
+      const res = await fetch(API + '/public/archives/' + id + '/like', { method: 'POST' });
+      const data = await res.json();
+      btn.querySelector('span').textContent = data.likes_count;
+      if (data.liked) {
+        btn.classList.add('liked');
+        localStorage.setItem('web_like_' + id, '1');
+      } else {
+        btn.classList.remove('liked');
+        localStorage.removeItem('web_like_' + id);
+      }
+    } catch(e) {
+      console.error(e);
+    }
+  }
+</script>
 </body>
 </html>
