@@ -44,3 +44,6 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# ── 워크트리 ─────────────────────────────────────────────────
+.worktrees/
