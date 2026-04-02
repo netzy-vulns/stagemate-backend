@@ -102,6 +102,7 @@ class PostRequest(BaseModel):
     media_urls: list[str] = Field(default_factory=list, max_length=5)
     is_global: bool = False
     is_anonymous: bool = False  # True면 "익명"으로 게시
+    youtube_url: Optional[str] = Field(None, max_length=500)
 
     @field_validator('content')
     @classmethod
@@ -109,6 +110,15 @@ class PostRequest(BaseModel):
         if re.search(r'<script', v, re.IGNORECASE):
             raise ValueError('스크립트 태그는 허용되지 않습니다.')
         return v.strip()
+
+    @field_validator('youtube_url')
+    @classmethod
+    def validate_youtube_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r'^https?://', v):
+            raise ValueError('URL은 http:// 또는 https://로 시작해야 합니다.')
+        return v
 
 
 class NicknameRequest(BaseModel):
@@ -390,3 +400,14 @@ class AudioSubmissionRequest(BaseModel):
 
 class FcmTokenRequest(BaseModel):
     token: str = Field(..., min_length=1, max_length=512)
+
+
+class PerformanceArchiveRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=1000)
+    performance_date: str = Field(..., pattern=r'^\d{4}-\d{2}-\d{2}$')
+    youtube_url: Optional[str] = Field(None, max_length=500)
+
+
+class ChallengeEntryRequest(BaseModel):
+    archive_id: int

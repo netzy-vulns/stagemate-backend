@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StageMate — 이달의 공연 랭킹</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+           background: #f8fafc; color: #1e293b; }
+    header { background: #0f172a; padding: 14px 20px;
+             display: flex; align-items: center; justify-content: space-between; }
+    .logo { display: flex; align-items: center; gap: 10px; color: white;
+            font-weight: 700; font-size: 1.1em; text-decoration: none; }
+    .download-btn { background: #6366f1; color: white; padding: 6px 14px;
+                    border-radius: 8px; font-size: 0.8em; text-decoration: none; }
+    .url-bar { background: #1e293b; padding: 5px 14px; font-size: 0.72em; color: #94a3b8; }
+    main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
+    .title-section { text-align: center; margin-bottom: 20px; }
+    .title-section h1 { font-size: 1.4em; margin-bottom: 4px; }
+    .title-section p { color: #64748b; font-size: 0.9em; }
+    .top-card { border-radius: 14px; overflow: hidden; margin-bottom: 14px;
+                box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+    .top-thumb { background: linear-gradient(135deg, #1a1a2e, #533483);
+                 height: 180px; display: flex; align-items: center;
+                 justify-content: center; position: relative; }
+    .play-btn { width: 56px; height: 56px; background: #ff0000; border-radius: 14px;
+                display: flex; align-items: center; justify-content: center; font-size: 1.6em; }
+    .rank-badge { position: absolute; top: 10px; left: 12px; background: #f59e0b;
+                  color: white; padding: 4px 10px; border-radius: 6px; font-size: 0.8em;
+                  font-weight: bold; }
+    .top-info { background: white; padding: 12px 14px;
+                display: flex; justify-content: space-between; align-items: center; }
+    .top-info h2 { font-size: 1em; }
+    .top-info p { color: #64748b; font-size: 0.8em; margin-top: 2px; }
+    .likes { display: flex; align-items: center; gap: 4px; color: #ef4444; font-weight: bold; }
+    .list-card { background: white; border-radius: 12px; overflow: hidden;
+                 box-shadow: 0 2px 8px rgba(0,0,0,.06); margin-bottom: 14px; }
+    .list-item { display: flex; align-items: center; gap: 12px; padding: 11px 14px;
+                 border-bottom: 1px solid #f1f5f9; text-decoration: none; color: inherit; }
+    .list-item:last-child { border-bottom: none; }
+    .rank-circle { width: 30px; height: 30px; background: #e2e8f0; border-radius: 50%;
+                   display: flex; align-items: center; justify-content: center;
+                   font-weight: bold; font-size: 0.85em; flex-shrink: 0; }
+    .thumb-small { width: 50px; height: 36px; background: linear-gradient(135deg,#1e3a5f,#533483);
+                   border-radius: 6px; display: flex; align-items: center;
+                   justify-content: center; flex-shrink: 0; color: white; }
+    .item-info { flex: 1; }
+    .item-info strong { font-size: 0.9em; display: block; }
+    .item-info span { font-size: 0.78em; color: #94a3b8; }
+    .item-likes { color: #94a3b8; font-size: 0.85em; }
+    .cta { background: linear-gradient(135deg, #4f46e5, #7c3aed); border-radius: 12px;
+           padding: 16px; color: white; display: flex; justify-content: space-between;
+           align-items: center; margin-top: 4px; }
+    .cta p { font-size: 0.8em; opacity: .85; margin-top: 3px; }
+    .cta-btn { background: white; color: #4f46e5; padding: 8px 14px; border-radius: 8px;
+               font-weight: bold; font-size: 0.8em; text-decoration: none;
+               white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="logo" href="/ranking">
+      StageMate
+    </a>
+    <a class="download-btn" href="#">앱 다운로드</a>
+  </header>
+  <div class="url-bar">stagemate.app/ranking</div>
+
+  <main>
+    <div class="title-section">
+      <h1>{{ year_month }} 인기 공연</h1>
+      <p>전국 공연 동아리들의 이달의 무대를 만나보세요</p>
+    </div>
+
+    {% if entries %}
+      {% set top = entries[0] %}
+      <a href="/clubs/{{ top.club_id }}/public" class="top-card" style="display:block;text-decoration:none;color:inherit;">
+        <div class="top-thumb">
+          <div class="play-btn">▶</div>
+          <div class="rank-badge">이달의 1위</div>
+        </div>
+        <div class="top-info">
+          <div>
+            <h2>{{ top.club_name }}</h2>
+            <p>{{ top.archive_title }}</p>
+          </div>
+          <div class="likes">♥ {{ top.likes_count }}</div>
+        </div>
+      </a>
+
+      {% if entries|length > 1 %}
+      <div class="list-card">
+        {% for entry in entries[1:] %}
+        <a href="/clubs/{{ entry.club_id }}/public" class="list-item">
+          <div class="rank-circle">{{ loop.index + 1 }}</div>
+          <div class="thumb-small">▶</div>
+          <div class="item-info">
+            <strong>{{ entry.club_name }}</strong>
+            <span>{{ entry.archive_title }}</span>
+          </div>
+          <div class="item-likes">♥ {{ entry.likes_count }}</div>
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% else %}
+      <p style="text-align:center;color:#94a3b8;padding:40px 0;">
+        아직 이달의 참가 동아리가 없어요.<br>앱에서 챌린지에 참가해보세요!
+      </p>
+    {% endif %}
+
+    <div class="cta">
+      <div>
+        <strong>우리 동아리도 도전하세요</strong>
+        <p>StageMate 앱에서 챌린지에 참가할 수 있어요</p>
+      </div>
+      <a class="cta-btn" href="#">앱 받기</a>
+    </div>
+  </main>
+</body>
+</html>

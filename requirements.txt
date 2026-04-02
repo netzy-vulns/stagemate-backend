@@ -14,3 +14,5 @@ fastapi-mail
 httpx
 boto3>=1.34.0
 firebase-admin
+jinja2
+aiofiles

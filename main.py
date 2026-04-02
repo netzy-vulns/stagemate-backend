@@ -12,6 +12,7 @@ from cryptography.exceptions import InvalidSignature
 from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -44,11 +45,14 @@ from models import (
     BoostRequest,
     PerformanceCreateRequest, AudioSubmissionRequest,
     FcmTokenRequest,
+    PerformanceArchiveRequest,
+    ChallengeEntryRequest,
 )
 from scheduler import calculate_schedule
 from group_schedule import find_common_slots_from_db
 from room_booking_db import add_booking_db, get_bookings_db, delete_booking_db
 from datetime import datetime, timedelta
+import calendar
 
 # ── 로깅 설정 ──────────────────────────────────────
 logging.basicConfig(
@@ -105,6 +109,58 @@ def _run_migrations() -> None:
         # clubs 테이블 — SNS 링크
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS instagram_url VARCHAR",
         "ALTER TABLE clubs ADD COLUMN IF NOT EXISTS youtube_url VARCHAR",
+        # --- 공연 플랫폼 마이그레이션 ---
+        """
+CREATE TABLE IF NOT EXISTS performance_archives (
+    id               SERIAL PRIMARY KEY,
+    club_id          INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    title            VARCHAR NOT NULL,
+    description      TEXT,
+    performance_date VARCHAR(10) NOT NULL,
+    youtube_url      VARCHAR(500),
+    native_video_url VARCHAR,
+    view_count       INTEGER NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP DEFAULT NOW()
+)
+""",
+        """
+CREATE TABLE IF NOT EXISTS performance_archive_likes (
+    id         SERIAL PRIMARY KEY,
+    archive_id INTEGER NOT NULL REFERENCES performance_archives(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT uq_archive_like UNIQUE (archive_id, user_id)
+)
+""",
+        """
+CREATE TABLE IF NOT EXISTS challenges (
+    id         SERIAL PRIMARY KEY,
+    year_month VARCHAR(7) NOT NULL,
+    is_active  BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT uq_challenge_month UNIQUE (year_month)
+)
+""",
+        """
+CREATE TABLE IF NOT EXISTS challenge_entries (
+    id           SERIAL PRIMARY KEY,
+    challenge_id INTEGER NOT NULL REFERENCES challenges(id) ON DELETE CASCADE,
+    club_id      INTEGER NOT NULL REFERENCES clubs(id) ON DELETE CASCADE,
+    archive_id   INTEGER NOT NULL REFERENCES performance_archives(id) ON DELETE CASCADE,
+    created_at   TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT uq_challenge_entry UNIQUE (challenge_id, club_id)
+)
+""",
+        """
+CREATE TABLE IF NOT EXISTS challenge_entry_likes (
+    id         SERIAL PRIMARY KEY,
+    entry_id   INTEGER NOT NULL REFERENCES challenge_entries(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT uq_entry_like UNIQUE (entry_id, user_id)
+)
+""",
+        "ALTER TABLE posts ADD COLUMN IF NOT EXISTS youtube_url VARCHAR(500)",
     ]
     with engine.connect() as conn:
         for sql in migrations:
@@ -210,6 +266,10 @@ app = FastAPI(
     # 프로덕션에서 자동 문서 노출 제한
     docs_url="/docs" if not settings.IS_PRODUCTION else None,
     redoc_url="/redoc" if not settings.IS_PRODUCTION else None,
+)
+
+templates = Jinja2Templates(
+    directory=os.path.join(os.path.dirname(__file__), "templates")
 )
 
 # Rate limit 초과 핸들러 등록
@@ -1485,6 +1545,7 @@ def create_post(
         is_anonymous=req.is_anonymous,
         post_author_name=post_author_name,
         view_count=0,
+        youtube_url=req.youtube_url,
     )
     db.add(post)
     db.commit()
@@ -1547,6 +1608,7 @@ def get_posts(
             "is_anonymous": p.is_anonymous or False,
             "content": p.content,
             "media_urls": p.media_urls or [],
+            "youtube_url": p.youtube_url,
             "like_count": like_count,
             "comment_count": comment_count,
             "view_count": p.view_count or 0,
@@ -1619,6 +1681,7 @@ def search_posts(
             "is_anonymous": p.is_anonymous or False,
             "content": p.content,
             "media_urls": p.media_urls or [],
+            "youtube_url": p.youtube_url,
             "like_count": like_count,
             "comment_count": comment_count,
             "view_count": p.view_count or 0,
@@ -1671,6 +1734,7 @@ def get_post(
         "is_anonymous": p.is_anonymous or False,
         "content": p.content,
         "media_urls": p.media_urls or [],
+        "youtube_url": p.youtube_url,
         "like_count": like_count,
         "comment_count": comment_count,
         "view_count": p.view_count or 0,
@@ -2585,6 +2649,307 @@ def delete_submission(
     return {"message": "제출이 삭제됐습니다."}
 
 
+# ── 공연 아카이브 ──────────────────────────────────────────────
+
+def _archive_to_dict(a, likes_count: int, my_liked: bool) -> dict:
+    return {
+        "id": a.id,
+        "club_id": a.club_id,
+        "title": a.title,
+        "description": a.description,
+        "performance_date": a.performance_date,
+        "youtube_url": a.youtube_url,
+        "native_video_url": a.native_video_url,
+        "view_count": a.view_count,
+        "likes_count": likes_count,
+        "my_liked": my_liked,
+        "created_at": a.created_at.strftime("%Y-%m-%d"),
+    }
+
+
+@app.get("/clubs/{club_id}/performance-archives")
+def list_performance_archives(
+    club_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    archives = db.query(db_models.PerformanceArchive).filter(
+        db_models.PerformanceArchive.club_id == club_id
+    ).order_by(db_models.PerformanceArchive.performance_date.desc()).all()
+
+    result = []
+    for a in archives:
+        likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=a.id).count()
+        my_liked = db.query(db_models.PerformanceArchiveLike).filter_by(
+            archive_id=a.id, user_id=member.user_id
+        ).first() is not None
+        result.append(_archive_to_dict(a, likes_count, my_liked))
+    return result
+
+
+@app.post("/clubs/{club_id}/performance-archives")
+def create_performance_archive(
+    club_id: int,
+    req: PerformanceArchiveRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    # 무료 플랜 15개 한도
+    if member.club.plan == "free":
+        count = db.query(db_models.PerformanceArchive).filter_by(club_id=club_id).count()
+        if count >= 15:
+            raise HTTPException(
+                status_code=403,
+                detail="무료 플랜은 최대 15개까지 저장할 수 있어요. 무제한은 PRO 플랜으로 업그레이드하세요.",
+            )
+    archive = db_models.PerformanceArchive(
+        club_id=club_id,
+        title=req.title,
+        description=req.description,
+        performance_date=req.performance_date,
+        youtube_url=req.youtube_url,
+    )
+    db.add(archive)
+    db.commit()
+    db.refresh(archive)
+    return {"message": "등록되었습니다.", "id": archive.id}
+
+
+@app.get("/clubs/{club_id}/performance-archives/{archive_id}")
+def get_performance_archive(
+    club_id: int,
+    archive_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    a = db.query(db_models.PerformanceArchive).filter_by(
+        id=archive_id, club_id=club_id
+    ).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+    # view_count 증가
+    a.view_count += 1
+    db.commit()
+    likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(archive_id=archive_id).count()
+    my_liked = db.query(db_models.PerformanceArchiveLike).filter_by(
+        archive_id=archive_id, user_id=member.user_id
+    ).first() is not None
+    return _archive_to_dict(a, likes_count, my_liked)
+
+
+@app.post("/clubs/{club_id}/performance-archives/{archive_id}/like")
+def toggle_archive_like(
+    club_id: int,
+    archive_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    # 아카이브 존재 및 club_id 소속 확인
+    archive = db.query(db_models.PerformanceArchive).filter_by(
+        id=archive_id, club_id=club_id
+    ).first()
+    if not archive:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+
+    existing = db.query(db_models.PerformanceArchiveLike).filter_by(
+        archive_id=archive_id, user_id=member.user_id
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"liked": False}
+    db.add(db_models.PerformanceArchiveLike(archive_id=archive_id, user_id=member.user_id))
+    db.commit()
+    return {"liked": True}
+
+
+@app.delete("/clubs/{club_id}/performance-archives/{archive_id}")
+def delete_performance_archive(
+    club_id: int,
+    archive_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    # 다른 동아리의 아카이브 접근 차단
+    if member.club_id != club_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    a = db.query(db_models.PerformanceArchive).filter_by(
+        id=archive_id, club_id=club_id
+    ).first()
+    if not a:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+    db.delete(a)
+    db.commit()
+    return {"message": "삭제되었습니다."}
+
+
+# ── 챌린지 ────────────────────────────────────────────────────
+
+def _get_or_create_current_challenge(db: Session) -> db_models.Challenge:
+    """현재 월의 챌린지를 가져오거나 없으면 생성. 이전 월은 모두 비활성화."""
+    current_ym = datetime.utcnow().strftime("%Y-%m")
+
+    # 이전 월 모두 비활성화
+    db.query(db_models.Challenge).filter(
+        db_models.Challenge.year_month < current_ym,
+        db_models.Challenge.is_active == True,
+    ).update({"is_active": False})
+    db.commit()
+
+    challenge = db.query(db_models.Challenge).filter_by(year_month=current_ym).first()
+    if not challenge:
+        challenge = db_models.Challenge(year_month=current_ym)
+        db.add(challenge)
+        db.commit()
+        db.refresh(challenge)
+    return challenge
+
+
+@app.get("/challenge/current")
+def get_current_challenge(
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """현재 월 챌린지 정보 + 랭킹 반환"""
+    challenge = _get_or_create_current_challenge(db)
+    entries = challenge.entries  # already loaded via relationship
+
+    result = []
+    for entry in entries:
+        likes_count = db.query(db_models.ChallengeEntryLike).filter_by(
+            entry_id=entry.id
+        ).count()
+        my_liked = db.query(db_models.ChallengeEntryLike).filter_by(
+            entry_id=entry.id, user_id=member.user_id
+        ).first() is not None
+        archive = entry.archive
+        result.append({
+            "entry_id": entry.id,
+            "club_id": entry.club_id,
+            "club_name": entry.club.name,
+            "archive_id": archive.id,
+            "archive_title": archive.title,
+            "youtube_url": archive.youtube_url,
+            "likes_count": likes_count,
+            "my_liked": my_liked,
+        })
+
+    # 좋아요 많은 순 정렬
+    result.sort(key=lambda x: x["likes_count"], reverse=True)
+
+    # D-day 계산 (해당 월 말일까지)
+    now = datetime.utcnow()
+    last_day = calendar.monthrange(now.year, now.month)[1]
+    end_of_month = datetime(now.year, now.month, last_day, 23, 59, 59)
+    days_left = (end_of_month - now).days
+
+    return {
+        "challenge_id": challenge.id,
+        "year_month": challenge.year_month,
+        "is_active": challenge.is_active,
+        "days_left": days_left,
+        "entry_count": len(result),
+        "entries": result,
+        "my_club_id": member.club_id,
+    }
+
+
+@app.post("/challenge/entries")
+def submit_challenge_entry(
+    req: ChallengeEntryRequest,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    """현재 월 챌린지에 동아리 대표 공연 제출"""
+    challenge = _get_or_create_current_challenge(db)
+
+    if not challenge.is_active:
+        raise HTTPException(status_code=400, detail="종료된 챌린지입니다.")
+
+    # 이미 제출한 경우 확인
+    existing = db.query(db_models.ChallengeEntry).filter_by(
+        challenge_id=challenge.id, club_id=member.club_id
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="이미 이번 달 챌린지에 참가했어요. 기존 제출을 취소하고 다시 제출하세요.")
+
+    # 해당 아카이브가 우리 동아리 것인지 확인
+    archive = db.query(db_models.PerformanceArchive).filter_by(
+        id=req.archive_id, club_id=member.club_id
+    ).first()
+    if not archive:
+        raise HTTPException(status_code=404, detail="공연 기록을 찾을 수 없습니다.")
+
+    entry = db_models.ChallengeEntry(
+        challenge_id=challenge.id,
+        club_id=member.club_id,
+        archive_id=req.archive_id,
+    )
+    db.add(entry)
+    db.commit()
+    return {"message": "챌린지에 참가되었습니다!", "entry_id": entry.id}
+
+
+@app.delete("/challenge/entries/mine")
+def withdraw_challenge_entry(
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_admin),
+):
+    """현재 월 챌린지 참가 취소"""
+    challenge = _get_or_create_current_challenge(db)
+    entry = db.query(db_models.ChallengeEntry).filter_by(
+        challenge_id=challenge.id, club_id=member.club_id
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="참가 내역이 없습니다.")
+    db.delete(entry)
+    db.commit()
+    return {"message": "참가가 취소되었습니다."}
+
+
+@app.post("/challenge/entries/{entry_id}/like")
+def toggle_challenge_like(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    entry = db.get(db_models.ChallengeEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="참가 항목을 찾을 수 없습니다.")
+
+    challenge = db.get(db_models.Challenge, entry.challenge_id)
+    if not challenge or not challenge.is_active:
+        raise HTTPException(status_code=400, detail="투표 기간이 종료되었습니다.")
+
+    existing = db.query(db_models.ChallengeEntryLike).filter_by(
+        entry_id=entry_id, user_id=member.user_id
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        return {"liked": False}
+    db.add(db_models.ChallengeEntryLike(entry_id=entry_id, user_id=member.user_id))
+    db.commit()
+    return {"liked": True}
+
+
 # ════════════════════════════════════════════════
 #  핫 동아리 순위
 # ════════════════════════════════════════════════
@@ -2670,6 +3035,7 @@ def get_my_activity(
             "id": p.id,
             "content": p.content,
             "media_urls": p.media_urls or [],
+            "youtube_url": p.youtube_url,
             "like_count": like_count,
             "comment_count": comment_count,
             "is_global": p.is_global,
@@ -3184,3 +3550,79 @@ async def terms_of_service():
 <p>이용약관 관련 문의: <strong>netzy00.26@gmail.com</strong></p>
 </body></html>"""
     return HTMLResponse(content=html)
+
+
+# ── 공개 API (인증 없음) ───────────────────────────────────────
+
+@app.get("/public/ranking")
+def public_ranking_api(db: Session = Depends(get_db)):
+    """랭킹 JSON 데이터 — 인증 불필요"""
+    current_ym = datetime.utcnow().strftime("%Y-%m")
+    challenge = db.query(db_models.Challenge).filter_by(year_month=current_ym).first()
+    if not challenge:
+        return {"year_month": current_ym, "entries": []}
+
+    entries = []
+    for entry in challenge.entries:
+        likes_count = db.query(db_models.ChallengeEntryLike).filter_by(
+            entry_id=entry.id).count()
+        entries.append({
+            "club_id": entry.club_id,
+            "club_name": entry.club.name,
+            "archive_id": entry.archive_id,
+            "archive_title": entry.archive.title,
+            "youtube_url": entry.archive.youtube_url,
+            "likes_count": likes_count,
+        })
+    entries.sort(key=lambda x: x["likes_count"], reverse=True)
+    return {"year_month": current_ym, "entries": entries}
+
+
+@app.get("/public/clubs/{club_id}")
+def public_club_api(club_id: int, db: Session = Depends(get_db)):
+    """동아리 공개 프로필 + 아카이브 JSON — 인증 불필요"""
+    club = db.query(db_models.Club).filter_by(id=club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
+    archives = db.query(db_models.PerformanceArchive).filter_by(
+        club_id=club_id
+    ).order_by(db_models.PerformanceArchive.performance_date.desc()).all()
+
+    result = []
+    for a in archives:
+        likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(
+            archive_id=a.id).count()
+        result.append({
+            "id": a.id,
+            "title": a.title,
+            "performance_date": a.performance_date,
+            "youtube_url": a.youtube_url,
+            "view_count": a.view_count,
+            "likes_count": likes_count,
+        })
+    return {"club_name": club.name, "archives": result}
+
+
+# ── 웹 페이지 라우트 ───────────────────────────────────────────
+
+@app.get("/ranking")
+def web_ranking(request: Request, db: Session = Depends(get_db)):
+    data = public_ranking_api(db)
+    return templates.TemplateResponse("ranking.html", {
+        "request": request,
+        "year_month": data["year_month"],
+        "entries": data["entries"],
+    })
+
+
+@app.get("/clubs/{club_id}/public")
+def web_club_profile(club_id: int, request: Request, db: Session = Depends(get_db)):
+    club = db.query(db_models.Club).filter_by(id=club_id).first()
+    if not club:
+        return HTMLResponse("<h1>404 — 동아리를 찾을 수 없습니다</h1>", status_code=404)
+    data = public_club_api(club_id, db)
+    return templates.TemplateResponse("club_profile.html", {
+        "request": request,
+        "club_name": data["club_name"],
+        "archives": data["archives"],
+    })

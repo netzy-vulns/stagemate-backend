@@ -164,6 +164,7 @@ class Post(Base):
     is_anonymous = Column(Boolean, default=False, nullable=False)
     is_boosted       = Column(Boolean, default=False, nullable=False)
     boost_expires_at = Column(DateTime, nullable=True)
+    youtube_url      = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     author = relationship("User")
     likes = relationship("PostLike", back_populates="post", cascade="all, delete-orphan")
@@ -201,6 +202,92 @@ class CommentLike(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     comment    = relationship("PostComment", back_populates="likes")
     __table_args__ = (UniqueConstraint("comment_id", "user_id", name="uq_comment_like"),)
+
+
+# ── 공연 아카이브 ──────────────────────────────
+class PerformanceArchive(Base):
+    __tablename__ = "performance_archives"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    club_id          = Column(Integer, ForeignKey("clubs.id"), nullable=False)
+    title            = Column(String, nullable=False)
+    description      = Column(Text, nullable=True)
+    performance_date = Column(String(10), nullable=False)   # "YYYY-MM-DD"
+    youtube_url      = Column(String(500), nullable=True)
+    native_video_url = Column(String, nullable=True)        # PRO 전용
+    view_count       = Column(Integer, default=0, nullable=False)
+    created_at       = Column(DateTime, default=datetime.utcnow)
+
+    club  = relationship("Club")
+    likes = relationship("PerformanceArchiveLike", back_populates="archive",
+                         cascade="all, delete-orphan")
+
+
+class PerformanceArchiveLike(Base):
+    __tablename__ = "performance_archive_likes"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    archive_id = Column(Integer, ForeignKey("performance_archives.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    archive = relationship("PerformanceArchive", back_populates="likes")
+
+    __table_args__ = (
+        UniqueConstraint("archive_id", "user_id", name="uq_archive_like"),
+    )
+
+
+# ── 챌린지 ────────────────────────────────────
+class Challenge(Base):
+    __tablename__ = "challenges"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    year_month = Column(String(7), nullable=False)   # "YYYY-MM"
+    is_active  = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    entries = relationship("ChallengeEntry", back_populates="challenge",
+                           cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("year_month", name="uq_challenge_month"),
+    )
+
+
+class ChallengeEntry(Base):
+    __tablename__ = "challenge_entries"
+
+    id           = Column(Integer, primary_key=True, index=True)
+    challenge_id = Column(Integer, ForeignKey("challenges.id"), nullable=False)
+    club_id      = Column(Integer, ForeignKey("clubs.id"), nullable=False)
+    archive_id   = Column(Integer, ForeignKey("performance_archives.id"), nullable=False)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    challenge = relationship("Challenge", back_populates="entries")
+    club      = relationship("Club")
+    archive   = relationship("PerformanceArchive")
+    likes     = relationship("ChallengeEntryLike", back_populates="entry",
+                             cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("challenge_id", "club_id", name="uq_challenge_entry"),
+    )
+
+
+class ChallengeEntryLike(Base):
+    __tablename__ = "challenge_entry_likes"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    entry_id   = Column(Integer, ForeignKey("challenge_entries.id"), nullable=False)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    entry = relationship("ChallengeEntry", back_populates="likes")
+
+    __table_args__ = (
+        UniqueConstraint("entry_id", "user_id", name="uq_entry_like"),
+    )
 
 
 # ── 알림 테이블 ───────────────────────────────────────
