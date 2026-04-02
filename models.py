@@ -111,6 +111,15 @@ class PostRequest(BaseModel):
             raise ValueError('스크립트 태그는 허용되지 않습니다.')
         return v.strip()
 
+    @field_validator('youtube_url')
+    @classmethod
+    def validate_youtube_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not re.match(r'^https?://', v):
+            raise ValueError('URL은 http:// 또는 https://로 시작해야 합니다.')
+        return v
+
 
 class NicknameRequest(BaseModel):
     nickname: str = Field(..., min_length=1, max_length=20)
