@@ -12,6 +12,7 @@ from cryptography.exceptions import InvalidSignature
 from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
@@ -265,6 +266,10 @@ app = FastAPI(
     # 프로덕션에서 자동 문서 노출 제한
     docs_url="/docs" if not settings.IS_PRODUCTION else None,
     redoc_url="/redoc" if not settings.IS_PRODUCTION else None,
+)
+
+templates = Jinja2Templates(
+    directory=os.path.join(os.path.dirname(__file__), "templates")
 )
 
 # Rate limit 초과 핸들러 등록
@@ -3545,3 +3550,79 @@ async def terms_of_service():
 <p>이용약관 관련 문의: <strong>netzy00.26@gmail.com</strong></p>
 </body></html>"""
     return HTMLResponse(content=html)
+
+
+# ── 공개 API (인증 없음) ───────────────────────────────────────
+
+@app.get("/public/ranking")
+def public_ranking_api(db: Session = Depends(get_db)):
+    """랭킹 JSON 데이터 — 인증 불필요"""
+    current_ym = datetime.utcnow().strftime("%Y-%m")
+    challenge = db.query(db_models.Challenge).filter_by(year_month=current_ym).first()
+    if not challenge:
+        return {"year_month": current_ym, "entries": []}
+
+    entries = []
+    for entry in challenge.entries:
+        likes_count = db.query(db_models.ChallengeEntryLike).filter_by(
+            entry_id=entry.id).count()
+        entries.append({
+            "club_id": entry.club_id,
+            "club_name": entry.club.name,
+            "archive_id": entry.archive_id,
+            "archive_title": entry.archive.title,
+            "youtube_url": entry.archive.youtube_url,
+            "likes_count": likes_count,
+        })
+    entries.sort(key=lambda x: x["likes_count"], reverse=True)
+    return {"year_month": current_ym, "entries": entries}
+
+
+@app.get("/public/clubs/{club_id}")
+def public_club_api(club_id: int, db: Session = Depends(get_db)):
+    """동아리 공개 프로필 + 아카이브 JSON — 인증 불필요"""
+    club = db.query(db_models.Club).filter_by(id=club_id).first()
+    if not club:
+        raise HTTPException(status_code=404, detail="동아리를 찾을 수 없습니다.")
+    archives = db.query(db_models.PerformanceArchive).filter_by(
+        club_id=club_id
+    ).order_by(db_models.PerformanceArchive.performance_date.desc()).all()
+
+    result = []
+    for a in archives:
+        likes_count = db.query(db_models.PerformanceArchiveLike).filter_by(
+            archive_id=a.id).count()
+        result.append({
+            "id": a.id,
+            "title": a.title,
+            "performance_date": a.performance_date,
+            "youtube_url": a.youtube_url,
+            "view_count": a.view_count,
+            "likes_count": likes_count,
+        })
+    return {"club_name": club.name, "archives": result}
+
+
+# ── 웹 페이지 라우트 ───────────────────────────────────────────
+
+@app.get("/ranking")
+def web_ranking(request: Request, db: Session = Depends(get_db)):
+    data = public_ranking_api(db)
+    return templates.TemplateResponse("ranking.html", {
+        "request": request,
+        "year_month": data["year_month"],
+        "entries": data["entries"],
+    })
+
+
+@app.get("/clubs/{club_id}/public")
+def web_club_profile(club_id: int, request: Request, db: Session = Depends(get_db)):
+    club = db.query(db_models.Club).filter_by(id=club_id).first()
+    if not club:
+        return HTMLResponse("<h1>404 — 동아리를 찾을 수 없습니다</h1>", status_code=404)
+    data = public_club_api(club_id, db)
+    return templates.TemplateResponse("club_profile.html", {
+        "request": request,
+        "club_name": data["club_name"],
+        "archives": data["archives"],
+    })
