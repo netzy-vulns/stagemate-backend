@@ -1207,6 +1207,15 @@ def get_notices(
         db_models.Notice.club_id == member.club_id
     ).order_by(db_models.Notice.created_at.desc()).all()
 
+    # 내가 좋아요한 notice_id 집합
+    my_liked = {
+        nl.notice_id
+        for nl in db.query(db_models.NoticeLike).filter(
+            db_models.NoticeLike.notice_id.in_([n.id for n in notices]),
+            db_models.NoticeLike.user_id == member.user_id,
+        ).all()
+    }
+
     return [
         {
             "id": n.id,
@@ -1216,6 +1225,8 @@ def get_notices(
             "author": n.author.display_name,
             "author_id": n.author_id,
             "created_at": n.created_at.strftime("%Y-%m-%d %H:%M"),
+            "like_count": len(n.likes),
+            "is_liked": n.id in my_liked,
         }
         for n in notices
     ]
@@ -1273,6 +1284,10 @@ def get_notice(
     ).first()
     if not notice:
         raise HTTPException(status_code=404, detail="공지사항을 찾을 수 없습니다.")
+    is_liked = db.query(db_models.NoticeLike).filter(
+        db_models.NoticeLike.notice_id == notice_id,
+        db_models.NoticeLike.user_id == member.user_id,
+    ).first() is not None
     return {
         "id": notice.id,
         "title": notice.title,
@@ -1281,7 +1296,40 @@ def get_notice(
         "author": notice.author.display_name,
         "author_id": notice.author_id,
         "created_at": notice.created_at.strftime("%Y-%m-%d %H:%M"),
+        "like_count": len(notice.likes),
+        "is_liked": is_liked,
     }
+
+
+@app.post("/notices/{notice_id}/like")
+def toggle_notice_like(
+    notice_id: int,
+    db: Session = Depends(get_db),
+    member: db_models.ClubMember = Depends(require_any_member),
+):
+    """공지사항 좋아요 토글"""
+    notice = db.query(db_models.Notice).filter(
+        db_models.Notice.id == notice_id,
+        db_models.Notice.club_id == member.club_id,
+    ).first()
+    if not notice:
+        raise HTTPException(status_code=404, detail="공지사항을 찾을 수 없습니다.")
+    existing = db.query(db_models.NoticeLike).filter(
+        db_models.NoticeLike.notice_id == notice_id,
+        db_models.NoticeLike.user_id == member.user_id,
+    ).first()
+    if existing:
+        db.delete(existing)
+        db.commit()
+        liked = False
+    else:
+        db.add(db_models.NoticeLike(notice_id=notice_id, user_id=member.user_id))
+        db.commit()
+        liked = True
+    like_count = db.query(db_models.NoticeLike).filter(
+        db_models.NoticeLike.notice_id == notice_id
+    ).count()
+    return {"liked": liked, "like_count": like_count}
 
 
 @app.patch("/notices/{notice_id}")

@@ -134,6 +134,18 @@ class Notice(Base):
 
     author = relationship("User", back_populates="notices")
     comments = relationship("NoticeComment", back_populates="notice", cascade="all, delete-orphan")
+    likes = relationship("NoticeLike", back_populates="notice", cascade="all, delete-orphan")
+
+
+# ── 공지사항 좋아요 테이블 ────────────────────────
+class NoticeLike(Base):
+    __tablename__ = "notice_likes"
+    id = Column(Integer, primary_key=True, index=True)
+    notice_id = Column(Integer, ForeignKey("notices.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    notice = relationship("Notice", back_populates="likes")
+    __table_args__ = (UniqueConstraint("notice_id", "user_id", name="uq_notice_like"),)
 
 
 # ── 공지사항 댓글 테이블 ──────────────────────────
