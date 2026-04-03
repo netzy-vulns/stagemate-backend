@@ -13,6 +13,7 @@ from cryptography.exceptions import InvalidSignature
 from fastapi import FastAPI, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -280,6 +281,11 @@ app = FastAPI(
 
 templates = Jinja2Templates(
     directory=os.path.join(os.path.dirname(__file__), "templates")
+)
+app.mount(
+    "/static",
+    StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
+    name="static",
 )
 
 # Rate limit 초과 핸들러 등록

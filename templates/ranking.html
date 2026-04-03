@@ -5,8 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>StageMate — 이달의 공연 랭킹</title>
   <style>
+    @font-face {
+      font-family: 'AritaBuri';
+      src: url('/static/fonts/AritaBuri-SemiBold.otf') format('opentype');
+      font-weight: 600;
+    }
+    @font-face {
+      font-family: 'AritaBuri';
+      src: url('/static/fonts/AritaBuri-Medium.otf') format('opentype');
+      font-weight: 400;
+    }
+    @font-face {
+      font-family: 'IropkeBatang';
+      src: url('/static/fonts/IropkeBatang-Regular.otf') format('opentype');
+      font-weight: 400;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+    body { font-family: 'IropkeBatang', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
            background: #f8fafc; color: #1e293b; }
     header { background: #0f172a; padding: 14px 20px;
              display: flex; align-items: center; justify-content: space-between; }
@@ -17,7 +32,7 @@
     .url-bar { background: #1e293b; padding: 5px 14px; font-size: 0.72em; color: #94a3b8; }
     main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
     .title-section { text-align: center; margin-bottom: 20px; }
-    .title-section h1 { font-size: 1.4em; margin-bottom: 4px; }
+    .title-section h1 { font-size: 1.4em; margin-bottom: 4px; font-family: 'AritaBuri', serif; font-weight: 600; }
     .title-section p { color: #64748b; font-size: 0.9em; }
     .top-card { border-radius: 14px; overflow: hidden; margin-bottom: 14px;
                 box-shadow: 0 4px 16px rgba(0,0,0,.12); }
@@ -31,7 +46,7 @@
                   font-weight: bold; }
     .top-info { background: white; padding: 12px 14px;
                 display: flex; justify-content: space-between; align-items: center; }
-    .top-info h2 { font-size: 1em; }
+    .top-info h2 { font-size: 1em; font-family: 'AritaBuri', serif; font-weight: 600; }
     .top-info p { color: #64748b; font-size: 0.8em; margin-top: 2px; }
     .likes { display: flex; align-items: center; gap: 4px; color: #ef4444; font-weight: bold; }
     .list-card { background: white; border-radius: 12px; overflow: hidden;

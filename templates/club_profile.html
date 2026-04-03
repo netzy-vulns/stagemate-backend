@@ -4,10 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ club_name }} — StageMate</title>
-  <link href="https://fonts.googleapis.com/css2?family=Zen+Serif&display=swap" rel="stylesheet">
   <style>
+    @font-face {
+      font-family: 'AritaBuri';
+      src: url('/static/fonts/AritaBuri-SemiBold.otf') format('opentype');
+      font-weight: 600;
+    }
+    @font-face {
+      font-family: 'AritaBuri';
+      src: url('/static/fonts/AritaBuri-Medium.otf') format('opentype');
+      font-weight: 400;
+    }
+    @font-face {
+      font-family: 'IropkeBatang';
+      src: url('/static/fonts/IropkeBatang-Regular.otf') format('opentype');
+      font-weight: 400;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Zen Serif', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+    body { font-family: 'IropkeBatang', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
            background: #f8fafc; color: #1e293b; }
     header { background: #0f172a; padding: 14px 20px;
              display: flex; align-items: center; justify-content: space-between; }
@@ -17,7 +31,7 @@
                     border-radius: 8px; font-size: 0.8em; text-decoration: none; }
     main { max-width: 680px; margin: 0 auto; padding: 20px 16px; }
     .club-header { text-align: center; margin-bottom: 24px; }
-    .club-header h1 { font-size: 1.5em; margin-bottom: 4px; }
+    .club-header h1 { font-size: 1.5em; margin-bottom: 4px; font-family: 'AritaBuri', serif; font-weight: 600; }
     .club-header p { color: #64748b; }
     .archive-card { background: white; border-radius: 12px; overflow: hidden;
                     margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
@@ -47,7 +61,7 @@
     .play-btn:hover { transform: scale(1.08); box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
     .play-btn.no-link { background: #555; cursor: default; }
     .card-info { padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; }
-    .card-info strong { display: block; margin-bottom: 2px; }
+    .card-info strong { display: block; margin-bottom: 2px; font-family: 'AritaBuri', serif; font-weight: 600; }
     .card-info span { font-size: 0.8em; color: #94a3b8; }
     .like-btn { background: none; border: none; cursor: pointer; color: #ef4444;
                 display: flex; align-items: center; gap: 4px; font-size: 1em;
